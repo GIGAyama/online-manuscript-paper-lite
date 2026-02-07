@@ -1,0 +1,784 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>オンライン原稿用紙 Lite</title>
+    
+    <!-- Bootstrap 5 CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Bootstrap Icons -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Zen+Maru+Gothic:wght@500;700&family=Zen+Old+Mincho:wght@400;700&display=swap" rel="stylesheet">
+    <!-- SweetAlert2 -->
+    <link href="https://cdn.jsdelivr.net/npm/@sweetalert2/theme-material-ui/material-ui.min.css" rel="stylesheet">
+
+    <style>
+        :root {
+            --primary-color: #0d6efd;
+            --bg-color: #f8f9fa;
+            --paper-color: #fdfbf7;
+            --line-color: rgba(46, 125, 50, 0.4);
+            --line-strong: rgba(46, 125, 50, 0.8);
+        }
+
+        body {
+            font-family: "Zen Maru Gothic", sans-serif;
+            background-color: var(--bg-color);
+            height: 100vh;
+            overflow: hidden;
+            color: #333;
+        }
+
+        /* ヘッダー */
+        .navbar {
+            background-color: white;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.08);
+        }
+        .navbar-brand {
+            font-weight: 700;
+            color: #444;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        /* レイアウト */
+        .main-container {
+            height: calc(100vh - 60px - 30px);
+            padding-top: 20px;
+            padding-bottom: 20px;
+        }
+
+        .card {
+            border: none;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* 左側：入力エリア */
+        .input-area-wrapper {
+            flex-grow: 1;
+            position: relative;
+            background-color: #fff;
+            border-radius: 8px;
+            border: 1px solid #e0e0e0;
+            overflow: hidden;
+        }
+        #content {
+            width: 100%;
+            height: 100%;
+            border: none;
+            resize: none;
+            padding: 20px;
+            font-family: "Zen Maru Gothic", sans-serif;
+            font-size: 1.1rem;
+            line-height: 2rem;
+            background-image: linear-gradient(#f1f5f9 1px, transparent 1px);
+            background-size: 100% 2rem;
+            outline: none;
+        }
+        .char-counter {
+            position: absolute;
+            bottom: 10px;
+            right: 15px;
+            background: rgba(255,255,255,0.9);
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 0.9rem;
+            color: var(--primary-color);
+            font-weight: bold;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        /* 右側：プレビューエリア */
+        .preview-area {
+            background-color: #e9ecef;
+            border-radius: 12px;
+            overflow-x: auto;
+            overflow-y: hidden;
+            display: flex;
+            align-items: center;
+            justify-content: flex-start;
+            padding: 20px;
+            position: relative;
+            direction: rtl;
+        }
+        
+        #paper-wrapper {
+            flex-shrink: 0;
+            position: relative;
+            margin: 0 auto;
+        }
+        #paper-scaler {
+            transform-origin: top right;
+            transition: transform 0.3s ease-out;
+            position: absolute;
+            top: 0; right: 0;
+        }
+
+        .paper-sheet {
+            background-color: var(--paper-color);
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+            padding: 40px;
+            width: fit-content;
+            height: fit-content;
+            min-height: 80vh; 
+            min-width: 600px;
+            display: flex;
+            justify-content: flex-start;
+            direction: ltr;
+            box-sizing: border-box;
+        }
+
+        .genko-grid-wrapper {
+            display: flex;
+            flex-direction: row-reverse;
+            gap: 0;
+            height: 100%;
+        }
+
+        .genko-line {
+            display: flex;
+            flex-direction: column;
+            border-left: 1px solid var(--line-color);
+            flex-shrink: 0;
+        }
+        .genko-line:first-child { border-right: 1px solid var(--line-strong); }
+        .genko-line { border-left: 1px solid var(--line-strong); }
+
+        .genko-cell {
+            font-family: "Zen Old Mincho", serif;
+            writing-mode: vertical-rl;
+            text-orientation: mixed;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-bottom: 1px solid var(--line-color);
+            color: #2c3e50;
+            position: relative;
+            flex-shrink: 0;
+        }
+        .genko-cell:first-child { border-top: 1px solid var(--line-strong); }
+        .genko-cell:last-child { border-bottom: 1px solid var(--line-strong); }
+
+        .hanging-char {
+            position: absolute;
+            top: 100%;
+            left: 50%;
+            transform: translateX(-50%);
+            white-space: nowrap;
+            writing-mode: vertical-rl;
+            font-size: 0.7em;
+            line-height: 1;
+            margin-top: 0.1em;
+            pointer-events: none;
+            color: #000;
+        }
+
+        /* 印刷用スタイル */
+        @media print {
+            body * { visibility: hidden; }
+            #print-render-area, #print-render-area * { visibility: visible; }
+            #print-render-area {
+                position: absolute; left: 0; top: 0; width: 100%; margin: 0; padding: 0;
+            }
+            @page { size: A4 landscape; margin: 0; }
+            
+            .print-page {
+                width: 297mm; height: 210mm;
+                page-break-after: always;
+                position: relative;
+                font-family: "Zen Old Mincho", serif;
+                background: white;
+                box-sizing: border-box;
+                padding: 10mm;
+            }
+            
+            .print-layout-grid {
+                width: 100%; height: 100%;
+                display: grid;
+                grid-template-columns: 1fr 16mm 1fr;
+                border: 2px solid #2e7d32;
+            }
+
+            .print-gyobi-area {
+                border-left: 1px solid #2e7d32;
+                border-right: 1px solid #2e7d32;
+                display: flex;
+                flex-direction: column;
+                justify-content: center;
+                align-items: center;
+                color: #2e7d32;
+            }
+            .gyobi-content {
+                writing-mode: vertical-rl;
+                display: flex; align-items: center; gap: 10mm;
+            }
+            .gyobi-mark {
+                border: 1px solid #2e7d32;
+                width: 6mm; height: 10mm;
+                border-radius: 50% 50% 0 0;
+                margin-bottom: 5mm;
+            }
+
+            .print-half-grid { display: flex; flex-direction: row-reverse; }
+            .print-line {
+                flex: 1; display: flex; flex-direction: column;
+                border-left: 1px solid rgba(46,125,50,0.4);
+            }
+            .print-half-grid.right-side .print-line:first-child { border-right: none; }
+            .print-half-grid.left-side .print-line:first-child { border-right: none; }
+
+            .print-cell {
+                flex: 1; border-bottom: 1px solid rgba(46,125,50,0.4);
+                display: flex; align-items: center; justify-content: center;
+                position: relative;
+                writing-mode: vertical-rl; text-orientation: mixed;
+            }
+            .hanging-chars-print {
+                position: absolute; top: 100%; left: 50%; transform: translateX(-50%);
+                white-space: nowrap; writing-mode: vertical-rl; font-size: 0.6em;
+                margin-top: -2mm; line-height: 1;
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- ヘッダー -->
+    <nav class="navbar sticky-top">
+        <div class="container-fluid px-4">
+            <a class="navbar-brand" href="#">
+                <i class="bi bi-pencil-square text-primary fs-3"></i>
+                <div>
+                    <span class="d-block lh-1">オンライン<ruby>原稿<rt>げんこう</rt></ruby><ruby>用紙<rt>ようし</rt></ruby> <span class="badge bg-warning text-dark ms-1">Lite</span></span>
+                </div>
+            </a>
+            <div class="d-flex align-items-center gap-3">
+                <button class="btn btn-outline-secondary btn-sm rounded-circle p-2" onclick="showSettings()" title="設定">
+                    <i class="bi bi-gear-fill"></i>
+                </button>
+            </div>
+        </div>
+    </nav>
+
+    <!-- メイン画面 -->
+    <div class="container-fluid main-container">
+        <div class="row h-100 g-3">
+            
+            <!-- 左側：入力画面 -->
+            <div class="col-lg-4 col-md-5 h-100">
+                <div class="card p-3">
+                    <div class="mb-3">
+                        <label class="form-label small text-muted mb-1"><ruby>基本<rt>きほん</rt></ruby><ruby>情報<rt>じょうほう</rt></ruby></label>
+                        <input type="text" id="title" class="form-control mb-2" placeholder="題名（だいめい）">
+                        <div class="row g-2">
+                            <div class="col-4">
+                                <input type="text" id="class" class="form-control" placeholder="学年（がくねん）">
+                            </div>
+                            <div class="col-8">
+                                <input type="text" id="name" class="form-control" placeholder="氏名（しめい）">
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="input-area-wrapper mb-3">
+                        <textarea id="content" placeholder="ここをクリックして、作文（さくぶん）をかきましょう..."></textarea>
+                        <div class="char-counter">
+                            <span id="char-count-val">0</span> <ruby>文字<rt>もじ</rt></ruby>
+                        </div>
+                    </div>
+
+                    <div class="d-grid gap-2">
+                        <div class="row g-2">
+                            <div class="col-6">
+                                <!-- ファイル読み込み用の隠しinput -->
+                                <input type="file" id="file-input" accept=".txt" style="display: none;">
+                                <button class="btn btn-outline-primary w-100" id="btn-load">
+                                    <i class="bi bi-folder2-open"></i> <ruby>開<rt>ひら</rt></ruby>く
+                                </button>
+                            </div>
+                            <div class="col-6">
+                                <button class="btn btn-outline-success w-100" id="btn-download">
+                                    <i class="bi bi-download"></i> <ruby>保存<rt>ほぞん</rt></ruby>
+                                </button>
+                            </div>
+                        </div>
+                        <button class="btn btn-secondary w-100" id="btn-new">
+                            <i class="bi bi-file-earmark-plus"></i> <ruby>新<rt>あたら</rt></ruby>しく<ruby>書<rt>か</rt></ruby>く
+                        </button>
+                        <button class="btn btn-primary w-100 fw-bold shadow-sm" id="btn-print">
+                            <i class="bi bi-printer-fill me-2"></i> <ruby>印刷<rt>いんさつ</rt></ruby>する
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 右側：プレビュー画面 -->
+            <div class="col-lg-8 col-md-7 h-100">
+                <div class="card preview-area" id="paper-container">
+                    <div id="paper-wrapper">
+                        <div id="paper-scaler">
+                            <div class="paper-sheet" id="paper-sheet">
+                                <div id="genko-grid" class="genko-grid-wrapper">
+                                    <!-- JSで生成 -->
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <footer class="fixed-bottom bg-white border-top py-2 text-center text-muted small">
+        &copy; 2026 オンライン原稿用紙 Lite. データはあなたの端末にのみ保存されます。
+    </footer>
+
+    <!-- 印刷用レンダリングエリア -->
+    <div id="print-render-area"></div>
+
+    <!-- JSライブラリ -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+
+    <script>
+    document.addEventListener('DOMContentLoaded', () => {
+        
+        // ==========================================
+        //  1. 設定と状態
+        // ==========================================
+        const state = {
+            charsPerLine: 20 // 初期値は高学年用
+        };
+        const STORAGE_KEY = 'genko_lite_v1';
+
+        // ==========================================
+        //  2. UI要素
+        // ==========================================
+        const ui = {
+            title: document.getElementById('title'),
+            class: document.getElementById('class'),
+            name: document.getElementById('name'),
+            content: document.getElementById('content'),
+            charCount: document.getElementById('char-count-val'),
+            grid: document.getElementById('genko-grid'),
+            printArea: document.getElementById('print-render-area'),
+            fileInput: document.getElementById('file-input'),
+            
+            // フィット用
+            paperContainer: document.getElementById('paper-container'),
+            paperWrapper: document.getElementById('paper-wrapper'),
+            paperScaler: document.getElementById('paper-scaler'),
+            paperSheet: document.getElementById('paper-sheet'),
+            
+            btns: {
+                new: document.getElementById('btn-new'),
+                load: document.getElementById('btn-load'),
+                download: document.getElementById('btn-download'),
+                print: document.getElementById('btn-print')
+            }
+        };
+
+        // ==========================================
+        //  3. 原稿用紙ロジック (共通)
+        // ==========================================
+        const generateHeaderLines = (title, className, name, chars) => {
+            const lines = [];
+            const titleParas = title.split('\n');
+            titleParas.forEach(p => {
+                if(!p && lines.length === 0) return;
+                let line = Array(chars).fill('');
+                let cursor = 2; 
+                p.split('').forEach(c => {
+                    if(cursor >= chars) { lines.push(line); line = Array(chars).fill(''); cursor = 0; }
+                    line[cursor++] = c;
+                });
+                lines.push(line);
+            });
+            if(lines.length === 0 || (title && lines.length > 0)) lines.push(Array(chars).fill(''));
+
+            const footerText = (className + ' ' + name).trim();
+            if(footerText) {
+                let line = Array(chars).fill('');
+                let start = Math.max(0, chars - footerText.length - 1);
+                footerText.split('').forEach((c, i) => {
+                    if(start + i < chars) line[start + i] = c;
+                });
+                lines.push(line);
+                lines.push(Array(chars).fill(''));
+            }
+            return lines;
+        };
+
+        const parseBody = (text, chars) => {
+            const lines = [];
+            const noStart = ['、','。','」','』','）','っ','ゃ','ゅ','ょ','ッ','ャ','ュ','ョ','ー',',','.','」','』',']','}','>','ぁ','ぃ','ぅ','ぇ','ぉ','ァ','ィ','ゥ','ェ','ォ','ヮ','ヵ','ヶ','・','？','！','‼','⁇','々'];
+            const noEnd = ['「', '『', '（', '(', '[', '{', '<', '【', '〔', '［'];
+            const compressionPairs = ['。」', '。』', '。）', '、」', '、』', '、）', '！』', '！」', '？』', '？」'];
+            
+            text.split('\n').forEach(p => {
+                if(!p) { lines.push(Array(chars).fill('')); return; }
+                let line = [];
+                const pChars = p.split('');
+                let i = 0;
+                while(i < pChars.length) {
+                    let char = pChars[i];
+                    if (i < pChars.length - 1) {
+                        const pair = char + pChars[i+1];
+                        if (compressionPairs.includes(pair)) { char = pair; i++; }
+                    }
+                    if (line.length === chars - 1) {
+                         if (noEnd.includes(char.charAt(0))) {
+                             lines.push(line); line = []; line.push(char); i++; continue;
+                         }
+                    }
+                    line.push(char); i++;
+                    if (line.length >= chars) {
+                        while (i < pChars.length) {
+                            let nextStartChar = pChars[i];
+                            let nextUnit = nextStartChar;
+                            let step = 1;
+                            if (i < pChars.length - 1) {
+                                const nextPair = nextStartChar + pChars[i+1];
+                                if (compressionPairs.includes(nextPair)) { nextUnit = nextPair; step = 2; }
+                            }
+                            if (noStart.includes(nextUnit.charAt(0))) {
+                                line.push(nextUnit); i += step;
+                            } else { break; }
+                        }
+                        lines.push(line); line = [];
+                    }
+                }
+                if(line.length > 0) lines.push(line);
+            });
+            return lines;
+        };
+
+        const renderApp = () => {
+            ui.charCount.textContent = ui.content.value.length;
+            const chars = state.charsPerLine;
+            const header = generateHeaderLines(ui.title.value, ui.class.value, ui.name.value, chars);
+            const body = parseBody(ui.content.value, chars);
+            const all = [...header, ...body];
+
+            ui.grid.innerHTML = '';
+            
+            const renderLen = Math.max(all.length, 10);
+            const cellSize = chars === 20 ? '2.8rem' : '3.6rem';
+            const fontSize = chars === 20 ? '1.6rem' : '2.0rem';
+
+            for(let i=0; i<renderLen; i++) {
+                const rowData = all[i] || [];
+                const lineDiv = document.createElement('div');
+                lineDiv.className = 'genko-line';
+                for(let j=0; j<chars; j++) {
+                    const cell = document.createElement('div');
+                    cell.className = 'genko-cell';
+                    cell.style.width = cellSize;
+                    cell.style.height = cellSize;
+                    cell.style.fontSize = fontSize;
+                    cell.textContent = rowData[j] || '';
+                    if(j === chars - 1 && rowData.length > chars) { 
+                        const hang = document.createElement('div');
+                        hang.className = 'hanging-char';
+                        hang.textContent = rowData.slice(chars).join('');
+                        cell.appendChild(hang);
+                    }
+                    lineDiv.appendChild(cell);
+                }
+                ui.grid.appendChild(lineDiv);
+            }
+            setTimeout(fitPaperToScreen, 50);
+        };
+
+        const fitPaperToScreen = () => {
+            ui.paperScaler.style.transform = 'scale(1)';
+            ui.paperWrapper.style.width = 'auto';
+            ui.paperWrapper.style.height = 'auto';
+            
+            const containerHeight = ui.paperContainer.clientHeight - 40;
+            const paperWidth = ui.paperSheet.scrollWidth;
+            const paperHeight = ui.paperSheet.scrollHeight;
+
+            if (paperHeight === 0) return;
+
+            let scale = containerHeight / paperHeight;
+            if (scale > 1) scale = 1;
+
+            ui.paperScaler.style.transform = `scale(${scale})`;
+            ui.paperWrapper.style.width = `${paperWidth * scale}px`;
+            ui.paperWrapper.style.height = `${paperHeight * scale}px`;
+        };
+
+        // ==========================================
+        //  4. データ保存・読み込み (Lite版独自)
+        // ==========================================
+
+        // 自動保存 (localStorage)
+        const autoSave = () => {
+            const data = {
+                title: ui.title.value,
+                class: ui.class.value,
+                name: ui.name.value,
+                content: ui.content.value,
+                charsPerLine: state.charsPerLine,
+                timestamp: new Date().getTime()
+            };
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+        };
+
+        const tryRestore = () => {
+            const saved = localStorage.getItem(STORAGE_KEY);
+            if (saved) {
+                try {
+                    const data = JSON.parse(saved);
+                    ui.title.value = data.title || '';
+                    ui.class.value = data.class || '';
+                    ui.name.value = data.name || '';
+                    ui.content.value = data.content || '';
+                    if (data.charsPerLine) state.charsPerLine = data.charsPerLine;
+                    
+                    const Toast = Swal.mixin({ toast: true, position: 'top-end', showConfirmButton: false, timer: 3000 });
+                    Toast.fire({ icon: 'info', html: '<span class="fw-bold">前回の続きから始めます</span>' });
+                } catch (e) { console.error(e); }
+            }
+        };
+
+        // テキストファイルとしてダウンロード
+        const downloadAsFile = () => {
+            if(!ui.content.value && !ui.title.value) {
+                Swal.fire({ icon: 'warning', text: 'まだ何も書いていません' });
+                return;
+            }
+
+            // 保存するテキスト形式を作成
+            // 題名、名前なども含めるが、基本はプレーンテキスト
+            const textContent = 
+`【題名】${ui.title.value}
+【学年】${ui.class.value}
+【氏名】${ui.name.value}
+---------------------------
+${ui.content.value}`;
+
+            const blob = new Blob([textContent], { type: 'text/plain' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            
+            // ファイル名: 題名_氏名.txt (空なら日付)
+            let filename = `${ui.title.value}_${ui.name.value}`.replace(/[\/\\:*?"<>|]/g, ''); // 禁止文字除去
+            if(filename === '_') filename = `作文_${new Date().toLocaleDateString().replace(/\//g,'-')}`;
+            
+            a.href = url;
+            a.download = filename + '.txt';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        };
+
+        // ファイル読み込み (File API)
+        const loadFromFile = (file) => {
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                const text = e.target.result;
+                
+                // Lite形式のフォーマットかチェックし、パースを試みる
+                // 単純なテキストファイルの場合は本文にすべて入れる
+                let newContent = text;
+                
+                // 簡易パース: Lite版で保存した形式ならメタデータを抽出
+                const headerRegex = /【題名】(.*)\n【学年】(.*)\n【氏名】(.*)\n-{10,}\n([\s\S]*)/;
+                const match = text.match(headerRegex);
+
+                if (match) {
+                    ui.title.value = match[1].trim();
+                    ui.class.value = match[2].trim();
+                    ui.name.value = match[3].trim();
+                    newContent = match[4].trim(); // 本文
+                } else {
+                    // 通常のテキストファイルの場合
+                    // 確認ダイアログ
+                    Swal.fire({
+                        title: '確認',
+                        text: '題名などの情報が見つかりませんでした。テキストをすべて「本文」に読み込みますか？',
+                        icon: 'question',
+                        showCancelButton: true,
+                        confirmButtonText: '読み込む'
+                    }).then((result) => {
+                        if (result.isConfirmed) {
+                            ui.content.value = newContent;
+                            renderApp();
+                            autoSave();
+                        }
+                    });
+                    return; // 早期リターン（確認待ちのため）
+                }
+
+                ui.content.value = newContent;
+                renderApp();
+                autoSave();
+                Swal.fire({ icon: 'success', title: '読み込みました', timer: 1500, showConfirmButton: false });
+            };
+            reader.readAsText(file);
+        };
+
+        // ==========================================
+        //  5. イベントリスナー
+        // ==========================================
+
+        [ui.title, ui.class, ui.name, ui.content].forEach(el => {
+            el.addEventListener('input', () => { renderApp(); autoSave(); });
+        });
+        window.addEventListener('resize', () => fitPaperToScreen());
+
+        // 新規作成
+        ui.btns.new.addEventListener('click', () => {
+            Swal.fire({
+                title: '新しく書く',
+                text: '今書いている内容は消えます。よろしいですか？',
+                icon: 'warning',
+                showCancelButton: true,
+                confirmButtonText: 'はい',
+                cancelButtonText: 'いいえ'
+            }).then((result) => {
+                if (result.isConfirmed) {
+                    ui.title.value = ''; ui.class.value = ''; ui.name.value = ''; ui.content.value = '';
+                    localStorage.removeItem(STORAGE_KEY);
+                    renderApp();
+                }
+            });
+        });
+
+        // ダウンロード（保存）
+        ui.btns.download.addEventListener('click', downloadAsFile);
+
+        // 開くボタン -> 隠しinputをクリック
+        ui.btns.load.addEventListener('click', () => ui.fileInput.click());
+        
+        // ファイル選択時
+        ui.fileInput.addEventListener('change', (e) => {
+            if(e.target.files.length > 0) {
+                loadFromFile(e.target.files[0]);
+                e.target.value = ''; // リセット
+            }
+        });
+
+        // 印刷
+        ui.btns.print.addEventListener('click', () => {
+            const area = ui.printArea;
+            area.innerHTML = '';
+            const chars = state.charsPerLine;
+            const linesPerPage = chars === 20 ? 20 : 16;
+            const halfLines = linesPerPage / 2; 
+            const header = generateHeaderLines(ui.title.value, ui.class.value, ui.name.value, chars);
+            const body = parseBody(ui.content.value, chars);
+            const all = [...header, ...body];
+            const pages = Math.ceil(all.length / linesPerPage) || 1;
+            const fontSize = chars === 20 ? '16pt' : '20pt';
+
+            for(let p=0; p<pages; p++) {
+                const pageLines = all.slice(p*linesPerPage, (p+1)*linesPerPage);
+                const pageDiv = document.createElement('div');
+                pageDiv.className = 'print-page';
+                const gridLayout = document.createElement('div');
+                gridLayout.className = 'print-layout-grid';
+
+                const rightGrid = document.createElement('div');
+                rightGrid.className = 'print-half-grid right-side';
+                for(let i=0; i < halfLines; i++) {
+                    const lineData = pageLines[i] || [];
+                    const lineDiv = document.createElement('div');
+                    lineDiv.className = 'print-line';
+                    for(let j=0; j<chars; j++) {
+                        const cell = document.createElement('div');
+                        cell.className = 'print-cell';
+                        cell.style.fontSize = fontSize;
+                        cell.textContent = lineData[j] || '';
+                        if(j===chars-1 && lineData.length > chars) { 
+                            const h = document.createElement('div');
+                            h.className = 'hanging-chars-print';
+                            h.textContent = lineData.slice(chars).join('');
+                            cell.appendChild(h);
+                        }
+                        lineDiv.appendChild(cell);
+                    }
+                    rightGrid.appendChild(lineDiv);
+                }
+
+                const gyobiArea = document.createElement('div');
+                gyobiArea.className = 'print-gyobi-area';
+                gyobiArea.innerHTML = `<div class="gyobi-content"><div class="gyobi-mark"></div><div>${ui.title.value.substring(0,8)}</div><div style="font-size:0.8em; margin-top:5mm;">${p+1}</div></div>`;
+
+                const leftGrid = document.createElement('div');
+                leftGrid.className = 'print-half-grid left-side';
+                for(let i=halfLines; i < linesPerPage; i++) {
+                    const lineData = pageLines[i] || [];
+                    const lineDiv = document.createElement('div');
+                    lineDiv.className = 'print-line';
+                    for(let j=0; j<chars; j++) {
+                        const cell = document.createElement('div');
+                        cell.className = 'print-cell';
+                        cell.style.fontSize = fontSize;
+                        cell.textContent = lineData[j] || '';
+                        if(j===chars-1 && lineData.length > chars) {
+                            const h = document.createElement('div');
+                            h.className = 'hanging-chars-print';
+                            h.textContent = lineData.slice(chars).join('');
+                            cell.appendChild(h);
+                        }
+                        lineDiv.appendChild(cell);
+                    }
+                    leftGrid.appendChild(lineDiv);
+                }
+                gridLayout.appendChild(leftGrid);
+                gridLayout.appendChild(gyobiArea);
+                gridLayout.appendChild(rightGrid);
+                pageDiv.appendChild(gridLayout);
+                area.appendChild(pageDiv);
+            }
+            setTimeout(() => window.print(), 500);
+        });
+
+        // 設定
+        window.showSettings = () => {
+            Swal.fire({
+                html: `
+                    <div class="mb-3 fs-5 fw-bold"><ruby>用紙<rt>ようし</rt></ruby><ruby>設定<rt>せってい</rt></ruby></div>
+                    <div class="text-start p-3">
+                        <label class="form-label fw-bold"><ruby>文字<rt>もじ</rt></ruby>の<ruby>数<rt>かず</rt></ruby></label>
+                        <div class="form-check mb-2">
+                            <input class="form-check-input" type="radio" name="charSetting" id="char20" value="20" ${state.charsPerLine === 20 ? 'checked' : ''}>
+                            <label class="form-check-label" for="char20">20<ruby>文字<rt>もじ</rt></ruby> × 20<ruby>行<rt>ぎょう</rt></ruby> (高学年)</label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="radio" name="charSetting" id="char15" value="15" ${state.charsPerLine === 15 ? 'checked' : ''}>
+                            <label class="form-check-label" for="char15">15<ruby>文字<rt>もじ</rt></ruby> × 16<ruby>行<rt>ぎょう</rt></ruby> (低学年)</label>
+                        </div>
+                    </div>
+                `,
+                confirmButtonText: '変更する', showCancelButton: true, cancelButtonText: 'キャンセル',
+                preConfirm: () => parseInt(document.querySelector('input[name="charSetting"]:checked').value)
+            }).then((result) => {
+                if (result.isConfirmed) {
+                    state.charsPerLine = result.value;
+                    renderApp();
+                    autoSave();
+                    Swal.fire({ icon: 'success', title: '変更しました', timer: 1000, showConfirmButton: false });
+                }
+            });
+        };
+
+        tryRestore();
+        renderApp();
+    });
+    </script>
+</body>
+</html>
