@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>オンライン原稿用紙 Lite</title>
   <link rel="icon" href="favicon.png">
+  <title>オンライン原稿用紙 Lite</title>
 
   <!-- Tailwind CSS -->
   <script src="https://cdn.tailwindcss.com"></script>
@@ -114,7 +114,7 @@
   <div id="root"></div>
 
   <script type="text/babel">
-    const { useState, useEffect, useMemo, useRef } = React;
+    const { useState, useEffect, useMemo, useRef, useCallback } = React;
 
     const STORAGE_KEY = 'genko_lite_v2';
 
@@ -154,12 +154,12 @@
     };
 
     // プレビュー領域を画面サイズに合わせて自動縮小するラッパー
-    const ScalableWrapper = ({ children }) => {
-      const wrapperRef = useRef(null);
-      const containerRef = useRef(null); 
-      const contentRef = useRef(null);
-      const [scale, setScale] = useState(1);
-      const [dims, setDims] = useState({ w: 0, h: 0 });
+    const ScalableWrapper = ({ children, scrollContainerRef, onScroll }) => {
+        const wrapperRef = useRef(null);
+        const containerRef = useRef(null); 
+        const contentRef = useRef(null);
+        const [scale, setScale] = useState(1);
+        const [dims, setDims] = useState({ w: 0, h: 0 });
 
       useEffect(() => {
         let reqId;
@@ -227,7 +227,14 @@
 
       return (
         <div ref={wrapperRef} className="absolute inset-0 bg-slate-100/50 overflow-hidden">
-          <div ref={containerRef} className="w-full h-full overflow-auto relative hide-scrollbar p-6" style={{ direction: 'rtl' }}>
+          <div 
+            ref={(el) => {
+              containerRef.current = el;
+              if (scrollContainerRef) scrollContainerRef.current = el;
+            }} 
+            onScroll={onScroll}
+            className="w-full h-full overflow-auto relative hide-scrollbar p-6" 
+            style={{ direction: 'rtl' }}>
             <div style={{ direction: 'ltr' }} className="flex-shrink-0 w-max h-max mx-auto">
               <div style={{ width: dims.w > 0 ? dims.w * scale : '100%', height: dims.h > 0 ? dims.h * scale : '100%', position: 'relative' }} className="transition-all duration-300 ease-out">
                 <div ref={contentRef} style={{ transform: `scale(${scale})`, transformOrigin: 'top right', position: 'absolute', top: 0, right: 0 }} className="shadow-xl rounded-sm bg-paper inline-block border border-slate-200">
@@ -368,7 +375,7 @@
         </nav>
     );
 
-    const InputPanel = ({ doc, updateDoc, onNew, onLoad, onDownload }) => {
+    const InputPanel = ({ doc, updateDoc, onNew, onLoad, onDownload, textareaRef, onScroll }) => {
         const handleChange = (e) => updateDoc({ [e.target.name]: e.target.value });
         const charCount = (doc.content || '').length;
 
@@ -390,6 +397,8 @@
 
                 <div className="flex-1 relative bg-amber-50/30">
                     <textarea 
+                        ref={textareaRef}
+                        onScroll={onScroll}
                         name="content" value={doc.content} onChange={handleChange}
                         placeholder="ここをクリックして、さくぶんをかいてください..."
                         className="w-full h-full resize-none border-none p-6 text-lg focus:outline-none focus:bg-amber-50/60 text-slate-800 leading-[2.5rem] bg-transparent hide-scrollbar transition-colors"
@@ -420,6 +429,40 @@
         );
     };
 
+    // 行単位での再レンダリングを防ぐためのメモ化コンポーネント（極限最適化）
+    const GenkoLine = React.memo(({ rowData, chars, cellSize, isFirst, isLast }) => {
+        return (
+            <div className={`flex flex-col flex-shrink-0 border-l border-genkoLine ${isFirst ? 'border-r border-genkoStrong' : ''} ${isLast ? 'border-l-genkoStrong' : ''}`}>
+                {Array.from({ length: chars }).map((_, j) => (
+                    <div key={j} className={`vertical-rl flex items-center justify-center border-b border-genkoLine relative flex-shrink-0 ${cellSize} ${j === chars - 1 ? 'border-b-0' : ''}`}>
+                        {rowData[j] || ''}
+                        {/* ぶら下がり文字 */}
+                        {j === chars - 1 && rowData.length > chars && (
+                            <div className="absolute top-full left-1/2 -translate-x-1/2 whitespace-nowrap vertical-rl text-[0.7em] leading-none mt-1 pointer-events-none text-black z-10">
+                                {rowData.slice(chars).join('')}
+                            </div>
+                        )}
+                    </div>
+                ))}
+            </div>
+        );
+    }, (prevProps, nextProps) => {
+        // 設定が変わった場合は再描画
+        if (prevProps.chars !== nextProps.chars) return false;
+        if (prevProps.cellSize !== nextProps.cellSize) return false;
+        if (prevProps.isFirst !== nextProps.isFirst) return false;
+        if (prevProps.isLast !== nextProps.isLast) return false;
+        
+        // 配列の中身を浅く比較して、変更がなければ再描画をスキップ（高速化の肝）
+        const prevRow = prevProps.rowData || [];
+        const nextRow = nextProps.rowData || [];
+        if (prevRow.length !== nextRow.length) return false;
+        for (let i = 0; i < prevRow.length; i++) {
+            if (prevRow[i] !== nextRow[i]) return false;
+        }
+        return true;
+    });
+
     const GenkoPaperPreview = ({ parsedGenko, settings }) => {
         const chars = settings.charsPerLine;
         const linesPerPage = chars === 20 ? 20 : 16;
@@ -437,19 +480,14 @@
                         const isFirst = i === 0;
                         const isLast = i === renderLen - 1;
                         return (
-                            <div key={i} className={`flex flex-col flex-shrink-0 border-l border-genkoLine ${isFirst ? 'border-r border-genkoStrong' : ''} ${isLast ? 'border-l-genkoStrong' : ''}`}>
-                                {Array.from({ length: chars }).map((_, j) => (
-                                    <div key={j} className={`vertical-rl flex items-center justify-center border-b border-genkoLine relative flex-shrink-0 ${cellSize} ${j === chars - 1 ? 'border-b-0' : ''}`}>
-                                        {rowData[j] || ''}
-                                        {/* ぶら下がり文字 */}
-                                        {j === chars - 1 && rowData.length > chars && (
-                                            <div className="absolute top-full left-1/2 -translate-x-1/2 whitespace-nowrap vertical-rl text-[0.7em] leading-none mt-1 pointer-events-none text-black z-10">
-                                                {rowData.slice(chars).join('')}
-                                            </div>
-                                        )}
-                                    </div>
-                                ))}
-                            </div>
+                            <GenkoLine 
+                                key={i} 
+                                rowData={rowData} 
+                                chars={chars} 
+                                cellSize={cellSize} 
+                                isFirst={isFirst} 
+                                isLast={isLast} 
+                            />
                         );
                     })}
                 </div>
@@ -544,6 +582,47 @@
         const [doc, setDoc] = useState({ title: '', class: '', name: '', content: '' });
         const [isInitialLoad, setIsInitialLoad] = useState(true);
         const [isSettingsModalOpen, setSettingsModalOpen] = useState(false);
+
+        // スクロール同期用のRefとフラグ
+        const textareaRef = useRef(null);
+        const previewContainerRef = useRef(null);
+        const isSyncingLeft = useRef(false);
+        const isSyncingRight = useRef(false);
+
+        // エディタのスクロールに合わせて原稿用紙を同期
+        const handleTextareaScroll = useCallback(() => {
+            if (isSyncingRight.current) return;
+            const left = textareaRef.current;
+            const right = previewContainerRef.current;
+            if (!left || !right) return;
+
+            isSyncingLeft.current = true;
+            const scrollableHeight = left.scrollHeight - left.clientHeight;
+            const ratio = scrollableHeight > 0 ? left.scrollTop / scrollableHeight : 0;
+            
+            const scrollableWidth = right.scrollWidth - right.clientWidth;
+            // RTLのscrollLeftはChrome/Edge等で負の値になる
+            right.scrollLeft = -scrollableWidth * ratio;
+
+            setTimeout(() => { isSyncingLeft.current = false; }, 50);
+        }, []);
+
+        // 原稿用紙のスクロールに合わせてエディタを同期
+        const handlePreviewScroll = useCallback(() => {
+            if (isSyncingLeft.current) return;
+            const left = textareaRef.current;
+            const right = previewContainerRef.current;
+            if (!left || !right) return;
+
+            isSyncingRight.current = true;
+            const scrollableWidth = right.scrollWidth - right.clientWidth;
+            const ratio = scrollableWidth > 0 ? Math.abs(right.scrollLeft) / scrollableWidth : 0;
+
+            const scrollableHeight = left.scrollHeight - left.clientHeight;
+            left.scrollTop = scrollableHeight * ratio;
+
+            setTimeout(() => { isSyncingRight.current = false; }, 50);
+        }, []);
 
         const Toast = Swal.mixin({ toast: true, position: 'top-end', showConfirmButton: false, timer: 3000 });
 
@@ -657,6 +736,8 @@
                         onNew={handleNew} 
                         onLoad={handleLoad} 
                         onDownload={handleDownload} 
+                        textareaRef={textareaRef}
+                        onScroll={handleTextareaScroll}
                     />
                     
                     {/* 右側：プレビューパネル */}
@@ -666,7 +747,7 @@
                                 <i className="bi bi-printer text-[18px] -mt-1"></i><span><Rb t="印刷" r="いんさつ"/>する</span>
                             </button>
                         </div>
-                        <ScalableWrapper>
+                        <ScalableWrapper scrollContainerRef={previewContainerRef} onScroll={handlePreviewScroll}>
                             <GenkoPaperPreview parsedGenko={parsedGenko} settings={settings} />
                         </ScalableWrapper>
                     </div>
