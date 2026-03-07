@@ -1,785 +1,747 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>オンライン原稿用紙 Lite</title>
-    
-    <!-- Bootstrap 5 CSS -->
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <!-- Bootstrap Icons -->
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
-    <link rel="icon" href="favicon.png">
-    <!-- Google Fonts -->
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Zen+Maru+Gothic:wght@500;700&family=Zen+Old+Mincho:wght@400;700&display=swap" rel="stylesheet">
-    <!-- SweetAlert2 -->
-    <link href="https://cdn.jsdelivr.net/npm/@sweetalert2/theme-material-ui/material-ui.min.css" rel="stylesheet">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>オンライン原稿用紙 Lite</title>
+  <link rel="icon" href="favicon.png">
 
-    <style>
-        :root {
-            --primary-color: #0d6efd;
-            --bg-color: #f8f9fa;
-            --paper-color: #fdfbf7;
-            --line-color: rgba(46, 125, 50, 0.4);
-            --line-strong: rgba(46, 125, 50, 0.8);
-        }
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Bootstrap Icons -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Zen+Maru+Gothic:wght@400;500;700&family=Zen+Old+Mincho:wght@400;700&display=swap" rel="stylesheet">
+  
+  <!-- React & Babel -->
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
-        body {
-            font-family: "Zen Maru Gothic", sans-serif;
-            background-color: var(--bg-color);
-            height: 100vh;
-            overflow: hidden;
-            color: #333;
-        }
+  <!-- SweetAlert2 -->
+  <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
 
-        /* ヘッダー */
-        .navbar {
-            background-color: white;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.08);
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['"Zen Maru Gothic"', 'sans-serif'],
+            genko: ['"Zen Old Mincho"', 'serif'],
+          },
+          colors: {
+            paper: '#fdfbf7',
+            genkoLine: 'rgba(46, 125, 50, 0.4)',
+            genkoStrong: 'rgba(46, 125, 50, 0.8)',
+          }
         }
-        .navbar-brand {
-            font-weight: 700;
-            color: #444;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
+      }
+    }
+  </script>
 
-        /* レイアウト */
-        .main-container {
-            height: calc(100vh - 60px - 30px);
-            padding-top: 20px;
-            padding-bottom: 20px;
-        }
+  <style>
+    /* カスタムスクロールバー */
+    .hide-scrollbar::-webkit-scrollbar { display: none; }
+    .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+    ::-webkit-scrollbar { width: 8px; height: 8px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
 
-        .card {
-            border: none;
-            border-radius: 12px;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.05);
-            height: 100%;
-            display: flex;
-            flex-direction: column;
-        }
+    .vertical-rl { writing-mode: vertical-rl; text-orientation: mixed; }
 
-        /* 左側：入力エリア */
-        .input-area-wrapper {
-            flex-grow: 1;
-            position: relative;
-            background-color: #fff;
-            border-radius: 8px;
-            border: 1px solid #e0e0e0;
-            overflow: hidden;
-        }
-        #content {
-            width: 100%;
-            height: 100%;
-            border: none;
-            resize: none;
-            padding: 20px;
-            font-family: "Zen Maru Gothic", sans-serif;
-            font-size: 1.1rem;
-            line-height: 2rem;
-            background-image: linear-gradient(#f1f5f9 1px, transparent 1px);
-            background-size: 100% 2rem;
-            outline: none;
-        }
-        .char-counter {
-            position: absolute;
-            bottom: 10px;
-            right: 15px;
-            background: rgba(255,255,255,0.9);
-            padding: 4px 12px;
-            border-radius: 20px;
-            font-size: 0.9rem;
-            color: var(--primary-color);
-            font-weight: bold;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        }
+    /* モーダルアニメーション */
+    @keyframes modalFadeIn { 0% { opacity: 0; transform: translateY(20px); } 100% { opacity: 1; transform: translateY(0); } }
+    .animate-modal { animation: modalFadeIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
 
-        /* 右側：プレビューエリア */
-        .preview-area {
-            background-color: #e9ecef;
-            border-radius: 12px;
-            overflow-x: auto;
-            overflow-y: hidden;
-            display: flex;
-            align-items: center;
-            justify-content: flex-start;
-            padding: 20px;
-            position: relative;
-            direction: rtl;
-        }
+    /* 印刷用CSS */
+    @media screen {
+        .print-only { display: none !important; }
+    }
+    @media print {
+        body { background: white; margin: 0; padding: 0; font-family: "Zen Old Mincho", serif; }
+        body > #root > div > .no-print { display: none !important; }
+        body > #root > div > .print-only { display: block !important; position: absolute; left: 0; top: 0; width: 100%; background: white; z-index: 9999; }
+        @page { size: A4 landscape; margin: 0; }
         
-        #paper-wrapper {
-            flex-shrink: 0;
+        .print-page {
+            width: 297mm; height: 210mm;
+            page-break-after: always;
             position: relative;
-            margin: 0 auto;
-        }
-        #paper-scaler {
-            transform-origin: top right;
-            transition: transform 0.3s ease-out;
-            position: absolute;
-            top: 0; right: 0;
-        }
-
-        .paper-sheet {
-            background-color: var(--paper-color);
-            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
-            padding: 40px;
-            width: fit-content;
-            height: fit-content;
-            min-height: 80vh; 
-            min-width: 600px;
-            display: flex;
-            justify-content: flex-start;
-            direction: ltr;
             box-sizing: border-box;
+            padding: 10mm;
+            background: white;
         }
-
-        .genko-grid-wrapper {
-            display: flex;
-            flex-direction: row-reverse;
-            gap: 0;
-            height: 100%;
+        .print-layout-grid {
+            width: 100%; height: 100%;
+            display: grid;
+            grid-template-columns: 1fr 16mm 1fr;
+            border: 2px solid #2e7d32;
         }
-
-        .genko-line {
-            display: flex;
-            flex-direction: column;
-            border-left: 1px solid var(--line-color);
-            flex-shrink: 0;
+        .print-gyobi-area {
+            border-left: 1px solid #2e7d32;
+            border-right: 1px solid #2e7d32;
+            display: flex; flex-direction: column; justify-content: center; align-items: center;
+            color: #2e7d32;
         }
-        .genko-line:first-child { border-right: 1px solid var(--line-strong); }
-        .genko-line { border-left: 1px solid var(--line-strong); }
-
-        .genko-cell {
-            font-family: "Zen Old Mincho", serif;
-            writing-mode: vertical-rl;
-            text-orientation: mixed;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            border-bottom: 1px solid var(--line-color);
-            color: #2c3e50;
-            position: relative;
-            flex-shrink: 0;
+        .gyobi-content {
+            writing-mode: vertical-rl; display: flex; align-items: center; gap: 10mm;
         }
-        .genko-cell:first-child { border-top: 1px solid var(--line-strong); }
-        .genko-cell:last-child { border-bottom: 1px solid var(--line-strong); }
-
-        .hanging-char {
-            position: absolute;
-            top: 100%;
-            left: 50%;
-            transform: translateX(-50%);
-            white-space: nowrap;
-            writing-mode: vertical-rl;
-            font-size: 0.7em;
-            line-height: 1;
-            margin-top: 0.1em;
-            pointer-events: none;
-            color: #000;
+        .gyobi-mark {
+            border: 1px solid #2e7d32; width: 6mm; height: 10mm; border-radius: 50% 50% 0 0; margin-bottom: 5mm;
         }
-
-        /* 印刷用スタイル */
-        @media print {
-            body * { visibility: hidden; }
-            #print-render-area, #print-render-area * { visibility: visible; }
-            #print-render-area {
-                position: absolute; left: 0; top: 0; width: 100%; margin: 0; padding: 0;
-            }
-            @page { size: A4 landscape; margin: 0; }
-            
-            .print-page {
-                width: 297mm; height: 210mm;
-                page-break-after: always;
-                position: relative;
-                font-family: "Zen Old Mincho", serif;
-                background: white;
-                box-sizing: border-box;
-                padding: 10mm;
-            }
-            
-            .print-layout-grid {
-                width: 100%; height: 100%;
-                display: grid;
-                grid-template-columns: 1fr 16mm 1fr;
-                border: 2px solid #2e7d32;
-            }
-
-            .print-gyobi-area {
-                border-left: 1px solid #2e7d32;
-                border-right: 1px solid #2e7d32;
-                display: flex;
-                flex-direction: column;
-                justify-content: center;
-                align-items: center;
-                color: #2e7d32;
-            }
-            .gyobi-content {
-                writing-mode: vertical-rl;
-                display: flex; align-items: center; gap: 10mm;
-            }
-            .gyobi-mark {
-                border: 1px solid #2e7d32;
-                width: 6mm; height: 10mm;
-                border-radius: 50% 50% 0 0;
-                margin-bottom: 5mm;
-            }
-
-            .print-half-grid { display: flex; flex-direction: row-reverse; }
-            .print-line {
-                flex: 1; display: flex; flex-direction: column;
-                border-left: 1px solid rgba(46,125,50,0.4);
-            }
-            .print-half-grid.right-side .print-line:first-child { border-right: none; }
-            .print-half-grid.left-side .print-line:first-child { border-right: none; }
-
-            .print-cell {
-                flex: 1; border-bottom: 1px solid rgba(46,125,50,0.4);
-                display: flex; align-items: center; justify-content: center;
-                position: relative;
-                writing-mode: vertical-rl; text-orientation: mixed;
-            }
-            .hanging-chars-print {
-                position: absolute; top: 100%; left: 50%; transform: translateX(-50%);
-                white-space: nowrap; writing-mode: vertical-rl; font-size: 0.6em;
-                margin-top: -2mm; line-height: 1;
-            }
+        .print-half-grid { display: flex; flex-direction: row-reverse; }
+        .print-line {
+            flex: 1; display: flex; flex-direction: column; border-left: 1px solid rgba(46,125,50,0.4);
         }
-    </style>
+        .print-half-grid.right-side .print-line:first-child { border-right: none; }
+        .print-half-grid.left-side .print-line:first-child { border-right: none; }
+        .print-cell {
+            flex: 1; border-bottom: 1px solid rgba(46,125,50,0.4);
+            display: flex; align-items: center; justify-content: center; position: relative;
+            writing-mode: vertical-rl; text-orientation: mixed;
+        }
+        .hanging-chars-print {
+            position: absolute; top: 100%; left: 50%; transform: translateX(-50%);
+            white-space: nowrap; writing-mode: vertical-rl; font-size: 0.6em;
+            margin-top: -2mm; line-height: 1;
+        }
+    }
+  </style>
 </head>
-<body>
+<body class="selection:bg-amber-200 bg-amber-50/40 text-slate-800 overflow-hidden print:overflow-visible">
+  <div id="root"></div>
 
-    <!-- ヘッダー -->
-    <nav class="navbar sticky-top">
-        <div class="container-fluid px-4">
-            <a class="navbar-brand" href="#">
-                <i class="bi bi-pencil-square text-primary fs-3"></i>
-                <div>
-                    <span class="d-block lh-1">オンライン<ruby>原稿<rt>げんこう</rt></ruby><ruby>用紙<rt>ようし</rt></ruby> <span class="badge bg-warning text-dark ms-1">Lite</span></span>
-                </div>
-            </a>
-            <div class="d-flex align-items-center gap-3">
-                <button class="btn btn-outline-secondary btn-sm rounded-circle p-2" onclick="showSettings()" title="設定">
-                    <i class="bi bi-gear-fill"></i>
-                </button>
+  <script type="text/babel">
+    const { useState, useEffect, useMemo, useRef } = React;
+
+    const STORAGE_KEY = 'genko_lite_v2';
+
+    // ==========================================
+    // ユーティリティ・共通コンポーネント
+    // ==========================================
+
+    // 小学生向けルビコンポーネント
+    const Rb = ({ t, r }) => (
+      <ruby className="relative inline-block text-center align-baseline leading-none">
+        {t}<rt className="absolute bottom-full left-1/2 -translate-x-1/2 whitespace-nowrap text-[0.6em] text-slate-500 pointer-events-none mb-[0.1em] font-medium tracking-normal" style={{ letterSpacing: 'normal' }}>{r}</rt>
+      </ruby>
+    );
+
+    // 共通モーダルコンポーネント
+    const Modal = ({ isOpen, onClose, title, children, maxWidth = 'max-w-md' }) => {
+      useEffect(() => {
+        const handleEsc = (e) => { if (e.key === 'Escape') onClose(); };
+        if (isOpen) window.addEventListener('keydown', handleEsc);
+        return () => window.removeEventListener('keydown', handleEsc);
+      }, [isOpen, onClose]);
+
+      if (!isOpen) return null;
+      return (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4 no-print">
+          <div className={`bg-white rounded-2xl shadow-2xl w-full ${maxWidth} flex flex-col overflow-hidden transform transition-all animate-modal`}>
+            <div className="flex justify-between items-center p-4 sm:p-5 border-b border-slate-100 bg-slate-50/50">
+              <h3 className="font-bold text-lg text-slate-800 pt-1">{title}</h3>
+              <button onClick={onClose} className="p-1.5 hover:bg-slate-200 rounded-full text-slate-500 transition-all active:scale-90">
+                <i className="bi bi-x-lg text-[20px]"></i>
+              </button>
             </div>
+            <div className="p-4 sm:p-5">{children}</div>
+          </div>
         </div>
-    </nav>
+      );
+    };
 
-    <!-- メイン画面 -->
-    <div class="container-fluid main-container">
-        <div class="row h-100 g-3">
+    // プレビュー領域を画面サイズに合わせて自動縮小するラッパー
+    const ScalableWrapper = ({ children }) => {
+      const wrapperRef = useRef(null);
+      const containerRef = useRef(null); 
+      const contentRef = useRef(null);
+      const [scale, setScale] = useState(1);
+      const [dims, setDims] = useState({ w: 0, h: 0 });
+
+      useEffect(() => {
+        let reqId;
+        const updateScale = () => {
+          if (!containerRef.current || !contentRef.current) return;
+          const availableH = containerRef.current.clientHeight - 40; // 上下余白
+          const firstChild = contentRef.current.firstElementChild;
+          if (!firstChild) return;
+          
+          const originalW = firstChild.offsetWidth; 
+          const originalH = firstChild.offsetHeight;
+
+          if (originalH > 10 && availableH > 10) {
+            let s = availableH / originalH;
+            if (s > 1) s = 1; // 拡大はしない
+            if (s < 0.1) s = 0.1;
             
-            <!-- 左側：入力画面 -->
-            <div class="col-lg-4 col-md-5 h-100">
-                <div class="card p-3">
-                    <div class="mb-3">
-                        <label class="form-label small text-muted mb-1"><ruby>基本<rt>きほん</rt></ruby><ruby>情報<rt>じょうほう</rt></ruby></label>
-                        <input type="text" id="title" class="form-control mb-2" placeholder="題名（だいめい）">
-                        <div class="row g-2">
-                            <div class="col-4">
-                                <input type="text" id="class" class="form-control" placeholder="学年（がくねん）">
-                            </div>
-                            <div class="col-8">
-                                <input type="text" id="name" class="form-control" placeholder="氏名（しめい）">
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="input-area-wrapper mb-3">
-                        <textarea id="content" placeholder="ここをクリックして、作文（さくぶん）をかきましょう..."></textarea>
-                        <div class="char-counter">
-                            <span id="char-count-val">0</span> <ruby>文字<rt>もじ</rt></ruby>
-                        </div>
-                    </div>
-
-                    <div class="d-grid gap-2">
-                        <div class="row g-2">
-                            <div class="col-6">
-                                <!-- ファイル読み込み用の隠しinput -->
-                                <input type="file" id="file-input" accept=".txt" style="display: none;">
-                                <button class="btn btn-outline-primary w-100" id="btn-load">
-                                    <i class="bi bi-folder2-open"></i> <ruby>開<rt>ひら</rt></ruby>く
-                                </button>
-                            </div>
-                            <div class="col-6">
-                                <button class="btn btn-outline-success w-100" id="btn-download">
-                                    <i class="bi bi-download"></i> <ruby>保存<rt>ほぞん</rt></ruby>
-                                </button>
-                            </div>
-                        </div>
-                        <button class="btn btn-secondary w-100" id="btn-new">
-                            <i class="bi bi-file-earmark-plus"></i> <ruby>新<rt>あたら</rt></ruby>しく<ruby>書<rt>か</rt></ruby>く
-                        </button>
-                        <button class="btn btn-primary w-100 fw-bold shadow-sm" id="btn-print">
-                            <i class="bi bi-printer-fill me-2"></i> <ruby>印刷<rt>いんさつ</rt></ruby>する
-                        </button>
-                    </div>
-                </div>
-            </div>
-
-            <!-- 右側：プレビュー画面 -->
-            <div class="col-lg-8 col-md-7 h-100">
-                <div class="card preview-area" id="paper-container">
-                    <div id="paper-wrapper">
-                        <div id="paper-scaler">
-                            <div class="paper-sheet" id="paper-sheet">
-                                <div id="genko-grid" class="genko-grid-wrapper">
-                                    <!-- JSで生成 -->
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <footer class="fixed-bottom bg-white border-top py-2 text-center text-muted small">
-        &copy; 2026 オンライン原稿用紙 Lite. データはあなたの端末にのみ保存されます。
-    </footer>
-
-    <!-- 印刷用レンダリングエリア -->
-    <div id="print-render-area"></div>
-
-    <!-- JSライブラリ -->
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
-
-    <script>
-    document.addEventListener('DOMContentLoaded', () => {
-        
-        // ==========================================
-        //  1. 設定と状態
-        // ==========================================
-        const state = {
-            charsPerLine: 20 // 初期値は高学年用
-        };
-        const STORAGE_KEY = 'genko_lite_v1';
-
-        // ==========================================
-        //  2. UI要素
-        // ==========================================
-        const ui = {
-            title: document.getElementById('title'),
-            class: document.getElementById('class'),
-            name: document.getElementById('name'),
-            content: document.getElementById('content'),
-            charCount: document.getElementById('char-count-val'),
-            grid: document.getElementById('genko-grid'),
-            printArea: document.getElementById('print-render-area'),
-            fileInput: document.getElementById('file-input'),
-            
-            // フィット用
-            paperContainer: document.getElementById('paper-container'),
-            paperWrapper: document.getElementById('paper-wrapper'),
-            paperScaler: document.getElementById('paper-scaler'),
-            paperSheet: document.getElementById('paper-sheet'),
-            
-            btns: {
-                new: document.getElementById('btn-new'),
-                load: document.getElementById('btn-load'),
-                download: document.getElementById('btn-download'),
-                print: document.getElementById('btn-print')
-            }
+            setDims(prev => {
+              if (prev.w !== originalW || prev.h !== originalH) {
+                return { w: originalW, h: originalH };
+              }
+              return prev;
+            });
+            setScale(s);
+          }
         };
 
-        // ==========================================
-        //  3. 原稿用紙ロジック (共通)
-        // ==========================================
-        const generateHeaderLines = (title, className, name, chars) => {
+        const observer = new ResizeObserver(() => { reqId = requestAnimationFrame(updateScale); });
+        if (containerRef.current) observer.observe(containerRef.current);
+        if (contentRef.current && contentRef.current.firstElementChild) observer.observe(contentRef.current.firstElementChild);
+
+        updateScale(); setTimeout(updateScale, 100);
+        return () => { observer.disconnect(); cancelAnimationFrame(reqId); };
+      }, [children]);
+
+      // 縦・横どちらのスクロール操作でも、プレビュー画面を横スクロールさせる
+      useEffect(() => {
+        const wrapper = wrapperRef.current;
+        const container = containerRef.current;
+        if (!wrapper || !container) return;
+
+        const handleWheel = (e) => {
+          // ブラウザのズーム機能（Ctrl+ホイール等）は妨害しない
+          if (e.ctrlKey || e.shiftKey || e.altKey) return;
+
+          e.preventDefault(); 
+          
+          let scrollAmount = 0;
+          if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) {
+            scrollAmount = -e.deltaY;
+          } else {
+            scrollAmount = e.deltaX;
+          }
+
+          if (typeof container.scrollBy === 'function') {
+            container.scrollBy({ left: scrollAmount, behavior: 'auto' });
+          } else {
+            container.scrollLeft += scrollAmount;
+          }
+        };
+
+        wrapper.addEventListener('wheel', handleWheel, { passive: false });
+        return () => wrapper.removeEventListener('wheel', handleWheel);
+      }, []);
+
+      return (
+        <div ref={wrapperRef} className="absolute inset-0 bg-slate-100/50 overflow-hidden">
+          <div ref={containerRef} className="w-full h-full overflow-auto relative hide-scrollbar p-6" style={{ direction: 'rtl' }}>
+            <div style={{ direction: 'ltr' }} className="flex-shrink-0 w-max h-max mx-auto">
+              <div style={{ width: dims.w > 0 ? dims.w * scale : '100%', height: dims.h > 0 ? dims.h * scale : '100%', position: 'relative' }} className="transition-all duration-300 ease-out">
+                <div ref={contentRef} style={{ transform: `scale(${scale})`, transformOrigin: 'top right', position: 'absolute', top: 0, right: 0 }} className="shadow-xl rounded-sm bg-paper inline-block border border-slate-200">
+                  {children}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    };
+
+    // ==========================================
+    // カスタムフック (原稿用紙ロジック)
+    // ==========================================
+
+    const useGenkoParser = (doc, settings) => {
+        return useMemo(() => {
+            const chars = settings.charsPerLine;
+            const kinsokuMode = settings.kinsokuMode || 'burasagari';
             const lines = [];
-            const titleParas = title.split('\n');
+            
+            // --- ヘッダー生成（題名・学年・氏名） ---
+            const titleParas = (doc.title || '').split('\n');
             titleParas.forEach(p => {
                 if(!p && lines.length === 0) return;
                 let line = Array(chars).fill('');
-                let cursor = 2; 
+                let cursor = 2; // 2マス下げる
                 p.split('').forEach(c => {
                     if(cursor >= chars) { lines.push(line); line = Array(chars).fill(''); cursor = 0; }
                     line[cursor++] = c;
                 });
                 lines.push(line);
             });
-            if(lines.length === 0 || (title && lines.length > 0)) lines.push(Array(chars).fill(''));
+            if(lines.length === 0 || (doc.title && lines.length > 0)) lines.push(Array(chars).fill(''));
 
-            const footerText = (className + ' ' + name).trim();
+            const footerText = (`${doc.class || ''} ${doc.name || ''}`).trim();
             if(footerText) {
                 let line = Array(chars).fill('');
-                let start = Math.max(0, chars - footerText.length - 1);
+                let start = Math.max(0, chars - footerText.length - 1); // 下から1マス空ける
                 footerText.split('').forEach((c, i) => {
                     if(start + i < chars) line[start + i] = c;
                 });
                 lines.push(line);
                 lines.push(Array(chars).fill(''));
             }
-            return lines;
-        };
 
-        const parseBody = (text, chars) => {
-            const lines = [];
+            // --- 本文生成（禁則処理と圧縮） ---
             const noStart = ['、','。','」','』','）','っ','ゃ','ゅ','ょ','ッ','ャ','ュ','ョ','ー',',','.','」','』',']','}','>','ぁ','ぃ','ぅ','ぇ','ぉ','ァ','ィ','ゥ','ェ','ォ','ヮ','ヵ','ヶ','・','？','！','‼','⁇','々'];
             const noEnd = ['「', '『', '（', '(', '[', '{', '<', '【', '〔', '［'];
             const compressionPairs = ['。」', '。』', '。）', '、」', '、』', '、）', '！』', '！」', '？』', '？」'];
             
-            text.split('\n').forEach(p => {
+            (doc.content || '').split('\n').forEach(p => {
                 if(!p) { lines.push(Array(chars).fill('')); return; }
                 let line = [];
                 const pChars = p.split('');
                 let i = 0;
+                
                 while(i < pChars.length) {
                     let char = pChars[i];
+                    
+                    // 文字の圧縮（。」などを1マスに）
                     if (i < pChars.length - 1) {
                         const pair = char + pChars[i+1];
                         if (compressionPairs.includes(pair)) { char = pair; i++; }
                     }
+                    
+                    // 行末の行頭禁則回避（追い出し）
                     if (line.length === chars - 1) {
-                         if (noEnd.includes(char.charAt(0))) {
-                             lines.push(line); line = []; line.push(char); i++; continue;
-                         }
-                    }
-                    line.push(char); i++;
-                    if (line.length >= chars) {
-                        while (i < pChars.length) {
-                            let nextStartChar = pChars[i];
-                            let nextUnit = nextStartChar;
-                            let step = 1;
-                            if (i < pChars.length - 1) {
-                                const nextPair = nextStartChar + pChars[i+1];
-                                if (compressionPairs.includes(nextPair)) { nextUnit = nextPair; step = 2; }
-                            }
-                            if (noStart.includes(nextUnit.charAt(0))) {
-                                line.push(nextUnit); i += step;
-                            } else { break; }
+                        if (noEnd.includes(char.charAt(0))) {
+                            lines.push(line); line = []; line.push(char); i++; continue;
                         }
-                        lines.push(line); line = [];
+                    }
+                    
+                    line.push(char); i++;
+                    
+                    // 行がいっぱいになったら
+                    if (line.length >= chars) {
+                        if (kinsokuMode === 'oidashi') {
+                            // 追い出し処理：次の文字が行頭禁則なら、今の行の最後を次行に送る
+                            if (i < pChars.length) {
+                                let nextUnit = pChars[i];
+                                if (i < pChars.length - 1) {
+                                    const nextPair = pChars[i] + pChars[i+1];
+                                    if (compressionPairs.includes(nextPair)) nextUnit = nextPair;
+                                }
+                                if (noStart.includes(nextUnit.charAt(0))) {
+                                    const kicked = line.pop();
+                                    lines.push(line);
+                                    line = [kicked];
+                                    continue;
+                                }
+                            }
+                            lines.push(line); line = [];
+                        } else {
+                            // ぶら下がり処理
+                            while (i < pChars.length) {
+                                let nextStartChar = pChars[i];
+                                let nextUnit = nextStartChar;
+                                let step = 1;
+                                if (i < pChars.length - 1) {
+                                    const nextPair = nextStartChar + pChars[i+1];
+                                    if (compressionPairs.includes(nextPair)) { nextUnit = nextPair; step = 2; }
+                                }
+                                if (noStart.includes(nextUnit.charAt(0))) {
+                                    line.push(nextUnit); i += step;
+                                } else { break; }
+                            }
+                            lines.push(line); line = [];
+                        }
                     }
                 }
                 if(line.length > 0) lines.push(line);
             });
+            
             return lines;
-        };
+        }, [doc, settings.charsPerLine, settings.kinsokuMode]);
+    };
 
-        const renderApp = () => {
-            ui.charCount.textContent = ui.content.value.length;
-            const chars = state.charsPerLine;
-            const header = generateHeaderLines(ui.title.value, ui.class.value, ui.name.value, chars);
-            const body = parseBody(ui.content.value, chars);
-            const all = [...header, ...body];
+    // ==========================================
+    // UI コンポーネント
+    // ==========================================
 
-            ui.grid.innerHTML = '';
-            
-            const renderLen = Math.max(all.length, 10);
-            const cellSize = chars === 20 ? '2.8rem' : '3.6rem';
-            const fontSize = chars === 20 ? '1.6rem' : '2.0rem';
+    const Header = ({ onSettingClick }) => (
+        <nav className="bg-white border-b-4 border-amber-500 px-6 py-2.5 flex justify-between items-center shrink-0 shadow-sm z-10 no-print">
+            <div className="flex items-center gap-3 hover:opacity-80 transition-all">
+                <div className="p-2 rounded-xl text-white shadow-sm bg-amber-500">
+                    <i className="bi bi-pencil-square text-[24px]"></i>
+                </div>
+                <div className="flex items-baseline gap-2">
+                    <span className="font-bold text-xl tracking-wide pt-2 text-amber-600">オンライン<Rb t="原稿用紙" r="げんこうようし"/></span>
+                    <span className="px-2 py-0.5 rounded-full text-xs font-bold text-white shadow-sm bg-amber-500 relative -top-[1px]">Lite</span>
+                </div>
+            </div>
+            <button onClick={onSettingClick} className="p-2 pt-3 text-slate-500 hover:bg-slate-100 rounded-full transition-all active:scale-95" title="設定">
+                <i className="bi bi-gear text-[22px]"></i>
+            </button>
+        </nav>
+    );
 
-            for(let i=0; i<renderLen; i++) {
-                const rowData = all[i] || [];
-                const lineDiv = document.createElement('div');
-                lineDiv.className = 'genko-line';
-                for(let j=0; j<chars; j++) {
-                    const cell = document.createElement('div');
-                    cell.className = 'genko-cell';
-                    cell.style.width = cellSize;
-                    cell.style.height = cellSize;
-                    cell.style.fontSize = fontSize;
-                    cell.textContent = rowData[j] || '';
-                    if(j === chars - 1 && rowData.length > chars) { 
-                        const hang = document.createElement('div');
-                        hang.className = 'hanging-char';
-                        hang.textContent = rowData.slice(chars).join('');
-                        cell.appendChild(hang);
-                    }
-                    lineDiv.appendChild(cell);
-                }
-                ui.grid.appendChild(lineDiv);
-            }
-            setTimeout(fitPaperToScreen, 50);
-        };
+    const InputPanel = ({ doc, updateDoc, onNew, onLoad, onDownload }) => {
+        const handleChange = (e) => updateDoc({ [e.target.name]: e.target.value });
+        const charCount = (doc.content || '').length;
 
-        const fitPaperToScreen = () => {
-            ui.paperScaler.style.transform = 'scale(1)';
-            ui.paperWrapper.style.width = 'auto';
-            ui.paperWrapper.style.height = 'auto';
-            
-            const containerHeight = ui.paperContainer.clientHeight - 40;
-            const paperWidth = ui.paperSheet.scrollWidth;
-            const paperHeight = ui.paperSheet.scrollHeight;
+        return (
+            <div className="w-[380px] lg:w-[420px] bg-white rounded-2xl shadow-sm border border-slate-200 flex flex-col overflow-hidden shrink-0 h-full no-print">
+                <div className="p-5 border-b border-slate-100 bg-slate-50 shrink-0">
+                    <div className="text-sm font-bold text-slate-500 mb-2 pt-1 leading-loose">
+                        <i className="bi bi-person-vcard"></i> <Rb t="基本情報" r="きほんじょうほう"/>
+                    </div>
+                    <input type="text" name="title" value={doc.title} onChange={handleChange} placeholder="だいめい" 
+                           className="w-full px-4 py-3 mb-3 border border-slate-200 rounded-xl outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-100 font-bold text-lg transition-all bg-white text-slate-800" />
+                    <div className="flex gap-3">
+                        <input type="text" name="class" value={doc.class} onChange={handleChange} placeholder="がくねん・くみ" 
+                               className="w-1/3 px-4 py-2 border border-slate-200 rounded-xl outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-100 transition-all bg-white text-slate-800 text-sm" />
+                        <input type="text" name="name" value={doc.name} onChange={handleChange} placeholder="なまえ" 
+                               className="flex-1 px-4 py-2 border border-slate-200 rounded-xl outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-100 transition-all bg-white text-slate-800 text-sm" />
+                    </div>
+                </div>
 
-            if (paperHeight === 0) return;
+                <div className="flex-1 relative bg-amber-50/30">
+                    <textarea 
+                        name="content" value={doc.content} onChange={handleChange}
+                        placeholder="ここをクリックして、さくぶんをかいてください..."
+                        className="w-full h-full resize-none border-none p-6 text-lg focus:outline-none focus:bg-amber-50/60 text-slate-800 leading-[2.5rem] bg-transparent hide-scrollbar transition-colors"
+                        style={{ 
+                            backgroundImage: 'linear-gradient(to bottom, transparent calc(100% - 1px), #cbd5e1 calc(100% - 1px))',
+                            backgroundSize: '100% 2.5rem',
+                            backgroundPosition: '0 1.5rem',
+                            backgroundAttachment: 'local'
+                        }}
+                    />
+                    <div className="absolute bottom-4 right-4 bg-white/90 px-4 py-1.5 rounded-full shadow-sm border border-slate-200 text-sm font-bold text-amber-600 backdrop-blur-sm">
+                        {charCount.toLocaleString()} <Rb t="文字" r="もじ"/>
+                    </div>
+                </div>
 
-            let scale = containerHeight / paperHeight;
-            if (scale > 1) scale = 1;
+                <div className="p-5 border-t border-slate-100 bg-white grid grid-cols-2 gap-3 shrink-0">
+                    <button onClick={onNew} className="flex items-center justify-center gap-2 pt-4 pb-2.5 border border-slate-200 rounded-xl bg-slate-50 hover:bg-slate-100 font-bold text-slate-700 transition-all active:scale-95 leading-loose">
+                        <i className="bi bi-file-earmark-plus text-[18px]"></i> <span><Rb t="新規" r="しんき"/></span>
+                    </button>
+                    <button onClick={onLoad} className="flex items-center justify-center gap-2 pt-4 pb-2.5 border border-amber-200 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-700 font-bold transition-all active:scale-95 leading-loose">
+                        <i className="bi bi-folder2-open text-[18px]"></i> <span><Rb t="開" r="ひら"/>く</span>
+                    </button>
+                    <button onClick={onDownload} className="col-span-2 flex items-center justify-center gap-2 pt-4 pb-3 bg-gradient-to-r from-slate-700 to-slate-800 text-white rounded-xl font-bold hover:from-slate-800 hover:to-slate-900 transition-all active:scale-95 shadow-md hover:shadow-lg leading-loose">
+                        <i className="bi bi-download text-[18px]"></i> <span><Rb t="保存" r="ほぞん"/>する</span>
+                    </button>
+                </div>
+            </div>
+        );
+    };
 
-            ui.paperScaler.style.transform = `scale(${scale})`;
-            ui.paperWrapper.style.width = `${paperWidth * scale}px`;
-            ui.paperWrapper.style.height = `${paperHeight * scale}px`;
-        };
+    const GenkoPaperPreview = ({ parsedGenko, settings }) => {
+        const chars = settings.charsPerLine;
+        const linesPerPage = chars === 20 ? 20 : 16;
+        const cellSize = chars === 20 ? 'w-[2.8rem] h-[2.8rem] text-[1.6rem]' : 'w-[3.6rem] h-[3.6rem] text-[2.0rem]';
+        
+        // 常に1ページ（20行 or 16行）の倍数で描画し、用紙の形を綺麗に保つ
+        const pageCount = Math.ceil(parsedGenko.length / linesPerPage) || 1;
+        const renderLen = pageCount * linesPerPage;
 
-        // ==========================================
-        //  4. データ保存・読み込み (Lite版独自)
-        // ==========================================
+        return (
+            <div className="flex flex-row-reverse p-10 gap-8 font-genko w-max text-slate-800">
+                <div className="flex flex-row-reverse border-y border-genkoStrong">
+                    {Array.from({ length: renderLen }).map((_, i) => {
+                        const rowData = parsedGenko[i] || [];
+                        const isFirst = i === 0;
+                        const isLast = i === renderLen - 1;
+                        return (
+                            <div key={i} className={`flex flex-col flex-shrink-0 border-l border-genkoLine ${isFirst ? 'border-r border-genkoStrong' : ''} ${isLast ? 'border-l-genkoStrong' : ''}`}>
+                                {Array.from({ length: chars }).map((_, j) => (
+                                    <div key={j} className={`vertical-rl flex items-center justify-center border-b border-genkoLine relative flex-shrink-0 ${cellSize} ${j === chars - 1 ? 'border-b-0' : ''}`}>
+                                        {rowData[j] || ''}
+                                        {/* ぶら下がり文字 */}
+                                        {j === chars - 1 && rowData.length > chars && (
+                                            <div className="absolute top-full left-1/2 -translate-x-1/2 whitespace-nowrap vertical-rl text-[0.7em] leading-none mt-1 pointer-events-none text-black z-10">
+                                                {rowData.slice(chars).join('')}
+                                            </div>
+                                        )}
+                                    </div>
+                                ))}
+                            </div>
+                        );
+                    })}
+                </div>
+            </div>
+        );
+    };
 
-        // 自動保存 (localStorage)
-        const autoSave = () => {
-            const data = {
-                title: ui.title.value,
-                class: ui.class.value,
-                name: ui.name.value,
-                content: ui.content.value,
-                charsPerLine: state.charsPerLine,
-                timestamp: new Date().getTime()
-            };
-            localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-        };
+    const PrintGenkoView = ({ parsedGenko, settings, doc }) => {
+        const chars = settings.charsPerLine;
+        const linesPerPage = chars === 20 ? 20 : 16;
+        const halfLines = linesPerPage / 2;
+        const pageCount = Math.ceil(parsedGenko.length / linesPerPage) || 1;
+        const fontSize = chars === 20 ? '16pt' : '20pt';
 
-        const tryRestore = () => {
+        const pages = Array.from({ length: pageCount }, (_, i) => {
+            return parsedGenko.slice(i * linesPerPage, (i + 1) * linesPerPage);
+        });
+
+        const shortTitle = (doc.title || '無題').substring(0, 10);
+
+        return (
+            <div className="print-only font-genko">
+                {pages.map((pageLines, pIndex) => (
+                    <div key={pIndex} className="print-page">
+                        <div className="print-layout-grid">
+                            
+                            {/* 左半分のグリッド（表示は左側、内容は後半の行） */}
+                            <div className="print-half-grid left-side">
+                                {Array.from({ length: halfLines }).map((_, i) => {
+                                    const actualIndex = i + halfLines;
+                                    const lineData = pageLines[actualIndex] || [];
+                                    return (
+                                        <div key={actualIndex} className="print-line">
+                                            {Array.from({ length: chars }).map((_, j) => (
+                                                <div key={j} className="print-cell" style={{ fontSize }}>
+                                                    {lineData[j] || ''}
+                                                    {j === chars - 1 && lineData.length > chars && (
+                                                        <div className="hanging-chars-print">
+                                                            {lineData.slice(chars).join('')}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            ))}
+                                        </div>
+                                    );
+                                })}
+                            </div>
+
+                            {/* 中央の魚尾（とじしろ）エリア */}
+                            <div className="print-gyobi-area">
+                                <div className="gyobi-content">
+                                    <div className="gyobi-mark"></div>
+                                    <div className="font-bold">{shortTitle}</div>
+                                    <div className="text-[0.8em] mt-[5mm]">{pIndex + 1}</div>
+                                </div>
+                            </div>
+
+                            {/* 右半分のグリッド（表示は右側、内容は前半の行） */}
+                            <div className="print-half-grid right-side">
+                                {Array.from({ length: halfLines }).map((_, i) => {
+                                    const lineData = pageLines[i] || [];
+                                    return (
+                                        <div key={i} className="print-line">
+                                            {Array.from({ length: chars }).map((_, j) => (
+                                                <div key={j} className="print-cell" style={{ fontSize }}>
+                                                    {lineData[j] || ''}
+                                                    {j === chars - 1 && lineData.length > chars && (
+                                                        <div className="hanging-chars-print">
+                                                            {lineData.slice(chars).join('')}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            ))}
+                                        </div>
+                                    );
+                                })}
+                            </div>
+
+                        </div>
+                    </div>
+                ))}
+            </div>
+        );
+    };
+
+    // ==========================================
+    // メインアプリケーション
+    // ==========================================
+
+    const App = () => {
+        const [settings, setSettings] = useState({ charsPerLine: 20, kinsokuMode: 'burasagari' });
+        const [doc, setDoc] = useState({ title: '', class: '', name: '', content: '' });
+        const [isInitialLoad, setIsInitialLoad] = useState(true);
+        const [isSettingsModalOpen, setSettingsModalOpen] = useState(false);
+
+        const Toast = Swal.mixin({ toast: true, position: 'top-end', showConfirmButton: false, timer: 3000 });
+
+        // 初期データの復元
+        useEffect(() => {
             const saved = localStorage.getItem(STORAGE_KEY);
             if (saved) {
                 try {
                     const data = JSON.parse(saved);
-                    ui.title.value = data.title || '';
-                    ui.class.value = data.class || '';
-                    ui.name.value = data.name || '';
-                    ui.content.value = data.content || '';
-                    if (data.charsPerLine) state.charsPerLine = data.charsPerLine;
-                    
-                    const Toast = Swal.mixin({ toast: true, position: 'top-end', showConfirmButton: false, timer: 3000 });
-                    Toast.fire({ icon: 'info', html: '<span class="fw-bold">前回の続きから始めます</span>' });
-                } catch (e) { console.error(e); }
+                    setDoc({ title: data.title||'', class: data.class||'', name: data.name||'', content: data.content||'' });
+                    if (data.charsPerLine) {
+                        setSettings({ 
+                            charsPerLine: data.charsPerLine,
+                            kinsokuMode: data.kinsokuMode || 'burasagari'
+                        });
+                    }
+                    Toast.fire({ icon: 'info', html: '<span class="font-bold">前回の続きから始めます</span>' });
+                } catch (e) { console.error('Restore error', e); }
             }
-        };
+            setIsInitialLoad(false);
+        }, []);
 
-        // テキストファイルとしてダウンロード
-        const downloadAsFile = () => {
-            if(!ui.content.value && !ui.title.value) {
-                Swal.fire({ icon: 'warning', text: 'まだ何も書いていません' });
-                return;
-            }
+        // 自動保存 (入力から1秒後)
+        useEffect(() => {
+            if (isInitialLoad) return;
+            const timer = setTimeout(() => {
+                localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...doc, charsPerLine: settings.charsPerLine, kinsokuMode: settings.kinsokuMode }));
+            }, 1000);
+            return () => clearTimeout(timer);
+        }, [doc, settings, isInitialLoad]);
 
-            // 保存するテキスト形式を作成
-            // 題名、名前なども含めるが、基本はプレーンテキスト
-            const textContent = 
-`【題名】${ui.title.value}
-【学年】${ui.class.value}
-【氏名】${ui.name.value}
----------------------------
-${ui.content.value}`;
+        const parsedGenko = useGenkoParser(doc, settings);
 
-            const blob = new Blob([textContent], { type: 'text/plain' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            
-            // ファイル名: 題名_氏名.txt (空なら日付)
-            let filename = `${ui.title.value}_${ui.name.value}`.replace(/[\/\\:*?"<>|]/g, ''); // 禁止文字除去
-            if(filename === '_') filename = `作文_${new Date().toLocaleDateString().replace(/\//g,'-')}`;
-            
-            a.href = url;
-            a.download = filename + '.txt';
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            URL.revokeObjectURL(url);
-        };
+        // --- アクションハンドラ ---
 
-        // ファイル読み込み (File API)
-        const loadFromFile = (file) => {
-            const reader = new FileReader();
-            reader.onload = (e) => {
-                const text = e.target.result;
-                
-                // Lite形式のフォーマットかチェックし、パースを試みる
-                // 単純なテキストファイルの場合は本文にすべて入れる
-                let newContent = text;
-                
-                // 簡易パース: Lite版で保存した形式ならメタデータを抽出
-                const headerRegex = /【題名】(.*)\n【学年】(.*)\n【氏名】(.*)\n-{10,}\n([\s\S]*)/;
-                const match = text.match(headerRegex);
-
-                if (match) {
-                    ui.title.value = match[1].trim();
-                    ui.class.value = match[2].trim();
-                    ui.name.value = match[3].trim();
-                    newContent = match[4].trim(); // 本文
-                } else {
-                    // 通常のテキストファイルの場合
-                    // 確認ダイアログ
-                    Swal.fire({
-                        title: '確認',
-                        text: '題名などの情報が見つかりませんでした。テキストをすべて「本文」に読み込みますか？',
-                        icon: 'question',
-                        showCancelButton: true,
-                        confirmButtonText: '読み込む'
-                    }).then((result) => {
-                        if (result.isConfirmed) {
-                            ui.content.value = newContent;
-                            renderApp();
-                            autoSave();
-                        }
-                    });
-                    return; // 早期リターン（確認待ちのため）
-                }
-
-                ui.content.value = newContent;
-                renderApp();
-                autoSave();
-                Swal.fire({ icon: 'success', title: '読み込みました', timer: 1500, showConfirmButton: false });
-            };
-            reader.readAsText(file);
-        };
-
-        // ==========================================
-        //  5. イベントリスナー
-        // ==========================================
-
-        [ui.title, ui.class, ui.name, ui.content].forEach(el => {
-            el.addEventListener('input', () => { renderApp(); autoSave(); });
-        });
-        window.addEventListener('resize', () => fitPaperToScreen());
-
-        // 新規作成
-        ui.btns.new.addEventListener('click', () => {
+        const handleNew = () => {
             Swal.fire({
                 title: '新しく書く',
                 text: '今書いている内容は消えます。よろしいですか？',
                 icon: 'warning',
                 showCancelButton: true,
-                confirmButtonText: 'はい',
+                confirmButtonColor: '#ef4444',
+                confirmButtonText: 'はい、消して新しく書く',
                 cancelButtonText: 'いいえ'
             }).then((result) => {
                 if (result.isConfirmed) {
-                    ui.title.value = ''; ui.class.value = ''; ui.name.value = ''; ui.content.value = '';
-                    localStorage.removeItem(STORAGE_KEY);
-                    renderApp();
-                }
-            });
-        });
-
-        // ダウンロード（保存）
-        ui.btns.download.addEventListener('click', downloadAsFile);
-
-        // 開くボタン -> 隠しinputをクリック
-        ui.btns.load.addEventListener('click', () => ui.fileInput.click());
-        
-        // ファイル選択時
-        ui.fileInput.addEventListener('change', (e) => {
-            if(e.target.files.length > 0) {
-                loadFromFile(e.target.files[0]);
-                e.target.value = ''; // リセット
-            }
-        });
-
-        // 印刷
-        ui.btns.print.addEventListener('click', () => {
-            const area = ui.printArea;
-            area.innerHTML = '';
-            const chars = state.charsPerLine;
-            const linesPerPage = chars === 20 ? 20 : 16;
-            const halfLines = linesPerPage / 2; 
-            const header = generateHeaderLines(ui.title.value, ui.class.value, ui.name.value, chars);
-            const body = parseBody(ui.content.value, chars);
-            const all = [...header, ...body];
-            const pages = Math.ceil(all.length / linesPerPage) || 1;
-            const fontSize = chars === 20 ? '16pt' : '20pt';
-
-            for(let p=0; p<pages; p++) {
-                const pageLines = all.slice(p*linesPerPage, (p+1)*linesPerPage);
-                const pageDiv = document.createElement('div');
-                pageDiv.className = 'print-page';
-                const gridLayout = document.createElement('div');
-                gridLayout.className = 'print-layout-grid';
-
-                const rightGrid = document.createElement('div');
-                rightGrid.className = 'print-half-grid right-side';
-                for(let i=0; i < halfLines; i++) {
-                    const lineData = pageLines[i] || [];
-                    const lineDiv = document.createElement('div');
-                    lineDiv.className = 'print-line';
-                    for(let j=0; j<chars; j++) {
-                        const cell = document.createElement('div');
-                        cell.className = 'print-cell';
-                        cell.style.fontSize = fontSize;
-                        cell.textContent = lineData[j] || '';
-                        if(j===chars-1 && lineData.length > chars) { 
-                            const h = document.createElement('div');
-                            h.className = 'hanging-chars-print';
-                            h.textContent = lineData.slice(chars).join('');
-                            cell.appendChild(h);
-                        }
-                        lineDiv.appendChild(cell);
-                    }
-                    rightGrid.appendChild(lineDiv);
-                }
-
-                const gyobiArea = document.createElement('div');
-                gyobiArea.className = 'print-gyobi-area';
-                gyobiArea.innerHTML = `<div class="gyobi-content"><div class="gyobi-mark"></div><div>${ui.title.value.substring(0,8)}</div><div style="font-size:0.8em; margin-top:5mm;">${p+1}</div></div>`;
-
-                const leftGrid = document.createElement('div');
-                leftGrid.className = 'print-half-grid left-side';
-                for(let i=halfLines; i < linesPerPage; i++) {
-                    const lineData = pageLines[i] || [];
-                    const lineDiv = document.createElement('div');
-                    lineDiv.className = 'print-line';
-                    for(let j=0; j<chars; j++) {
-                        const cell = document.createElement('div');
-                        cell.className = 'print-cell';
-                        cell.style.fontSize = fontSize;
-                        cell.textContent = lineData[j] || '';
-                        if(j===chars-1 && lineData.length > chars) {
-                            const h = document.createElement('div');
-                            h.className = 'hanging-chars-print';
-                            h.textContent = lineData.slice(chars).join('');
-                            cell.appendChild(h);
-                        }
-                        lineDiv.appendChild(cell);
-                    }
-                    leftGrid.appendChild(lineDiv);
-                }
-                gridLayout.appendChild(leftGrid);
-                gridLayout.appendChild(gyobiArea);
-                gridLayout.appendChild(rightGrid);
-                pageDiv.appendChild(gridLayout);
-                area.appendChild(pageDiv);
-            }
-            setTimeout(() => window.print(), 500);
-        });
-
-        // 設定
-        window.showSettings = () => {
-            Swal.fire({
-                html: `
-                    <div class="mb-3 fs-5 fw-bold"><ruby>用紙<rt>ようし</rt></ruby><ruby>設定<rt>せってい</rt></ruby></div>
-                    <div class="text-start p-3">
-                        <label class="form-label fw-bold"><ruby>文字<rt>もじ</rt></ruby>の<ruby>数<rt>かず</rt></ruby></label>
-                        <div class="form-check mb-2">
-                            <input class="form-check-input" type="radio" name="charSetting" id="char20" value="20" ${state.charsPerLine === 20 ? 'checked' : ''}>
-                            <label class="form-check-label" for="char20">20<ruby>文字<rt>もじ</rt></ruby> × 20<ruby>行<rt>ぎょう</rt></ruby> (高学年)</label>
-                        </div>
-                        <div class="form-check">
-                            <input class="form-check-input" type="radio" name="charSetting" id="char15" value="15" ${state.charsPerLine === 15 ? 'checked' : ''}>
-                            <label class="form-check-label" for="char15">15<ruby>文字<rt>もじ</rt></ruby> × 16<ruby>行<rt>ぎょう</rt></ruby> (低学年)</label>
-                        </div>
-                    </div>
-                `,
-                confirmButtonText: '変更する', showCancelButton: true, cancelButtonText: 'キャンセル',
-                preConfirm: () => parseInt(document.querySelector('input[name="charSetting"]:checked').value)
-            }).then((result) => {
-                if (result.isConfirmed) {
-                    state.charsPerLine = result.value;
-                    renderApp();
-                    autoSave();
-                    Swal.fire({ icon: 'success', title: '変更しました', timer: 1000, showConfirmButton: false });
+                    setDoc({ title: '', class: '', name: '', content: '' });
+                    Toast.fire({ icon: 'success', title: '新しく始めました' });
                 }
             });
         };
 
-        tryRestore();
-        renderApp();
-    });
-    </script>
+        const handleDownload = () => {
+            if(!doc.content && !doc.title) {
+                Swal.fire({ icon: 'warning', text: 'まだ何も書いていません' });
+                return;
+            }
+            const textContent = `【題名】${doc.title}\n【学年】${doc.class}\n【氏名】${doc.name}\n---------------------------\n${doc.content}`;
+            const blob = new Blob([textContent], { type: 'text/plain' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            let filename = `${doc.title}_${doc.name}`.replace(/[\/\\:*?"<>|]/g, '');
+            if(filename === '_') filename = `作文_${new Date().toLocaleDateString().replace(/\//g,'-')}`;
+            
+            a.href = url;
+            a.download = filename + '.txt';
+            a.click();
+            URL.revokeObjectURL(url);
+        };
+
+        const handleLoad = () => {
+            const input = document.createElement('input');
+            input.type = 'file';
+            input.accept = '.txt';
+            input.onchange = (e) => {
+                const file = e.target.files[0];
+                if(!file) return;
+                const reader = new FileReader();
+                reader.onload = (event) => {
+                    const text = event.target.result;
+                    const headerRegex = /【題名】(.*)\n【学年】(.*)\n【氏名】(.*)\n-{10,}\n([\s\S]*)/;
+                    const match = text.match(headerRegex);
+                    if (match) {
+                        setDoc({ title: match[1].trim(), class: match[2].trim(), name: match[3].trim(), content: match[4].trim() });
+                        Toast.fire({ icon: 'success', title: '読み込みました' });
+                    } else {
+                        Swal.fire({
+                            title: '確認', text: '題名などの情報が見つかりません。すべて「本文」に読み込みますか？',
+                            icon: 'question', showCancelButton: true, confirmButtonText: '読み込む', confirmButtonColor: '#f59e0b'
+                        }).then((result) => {
+                            if (result.isConfirmed) {
+                                setDoc(prev => ({ ...prev, content: text }));
+                                Toast.fire({ icon: 'success', title: '読み込みました' });
+                            }
+                        });
+                    }
+                };
+                reader.readAsText(file);
+            };
+            input.click();
+        };
+
+        return (
+            <div className="h-screen w-full flex flex-col font-sans">
+                <Header onSettingClick={() => setSettingsModalOpen(true)} />
+                
+                <main className="flex-1 flex p-4 gap-4 overflow-hidden h-full no-print">
+                    <InputPanel 
+                        doc={doc} 
+                        updateDoc={(updates) => setDoc(prev => ({...prev, ...updates}))}
+                        onNew={handleNew} 
+                        onLoad={handleLoad} 
+                        onDownload={handleDownload} 
+                    />
+                    
+                    {/* 右側：プレビューパネル */}
+                    <div className="flex-1 bg-white rounded-2xl shadow-sm border border-slate-200 flex flex-col overflow-hidden relative min-w-0">
+                        <div className="absolute top-4 right-4 z-20">
+                            <button onClick={() => window.print()} className="px-4 pt-3 pb-2 rounded-xl font-bold text-amber-600 bg-amber-50 hover:bg-amber-100 border border-amber-200 transition-all active:scale-95 flex items-center gap-2 shadow-sm leading-loose">
+                                <i className="bi bi-printer text-[18px] -mt-1"></i><span><Rb t="印刷" r="いんさつ"/>する</span>
+                            </button>
+                        </div>
+                        <ScalableWrapper>
+                            <GenkoPaperPreview parsedGenko={parsedGenko} settings={settings} />
+                        </ScalableWrapper>
+                    </div>
+                </main>
+
+                {/* フッター */}
+                <footer className="flex-shrink-0 w-full bg-white border-t border-slate-200 pt-3 pb-2 text-center text-sm text-slate-500 font-bold no-print z-40 shadow-sm relative">
+                    &copy; 2026 オンライン原稿用紙 Lite. データはあなたの端末にのみ保存されます。
+                </footer>
+
+                {/* 印刷用DOM */}
+                <PrintGenkoView parsedGenko={parsedGenko} settings={settings} doc={doc} />
+
+                {/* 設定モーダル */}
+                <Modal isOpen={isSettingsModalOpen} onClose={() => setSettingsModalOpen(false)} title={<><Rb t="設定" r="せってい"/></>}>
+                    <div className="space-y-8 p-2">
+                        {/* 用紙の文字数 */}
+                        <div>
+                            <h4 className="font-bold text-slate-800 text-[1.1rem] mb-4"><Rb t="用紙" r="ようし"/>の<Rb t="文字数" r="もじすう"/></h4>
+                            <div className="space-y-5 pl-2">
+                                <label className="flex items-start gap-4 cursor-pointer group">
+                                    <div className="relative flex items-center justify-center mt-1 shrink-0">
+                                        <input type="radio" name="chars" checked={settings.charsPerLine === 20} onChange={() => setSettings({...settings, charsPerLine: 20})} className="peer appearance-none w-[22px] h-[22px] border-[2.5px] border-slate-300 rounded-full checked:border-teal-600 transition-all cursor-pointer bg-white" />
+                                        <div className="absolute w-[10px] h-[10px] bg-teal-600 rounded-full opacity-0 peer-checked:opacity-100 transition-all pointer-events-none"></div>
+                                    </div>
+                                    <span className="font-bold text-slate-800 text-[1.1rem]">20<Rb t="文字" r="もじ"/> × 20<Rb t="行" r="ぎょう"/> (<Rb t="高学年" r="こうがくねん"/>)</span>
+                                </label>
+                                <label className="flex items-start gap-4 cursor-pointer group">
+                                    <div className="relative flex items-center justify-center mt-1 shrink-0">
+                                        <input type="radio" name="chars" checked={settings.charsPerLine === 15} onChange={() => setSettings({...settings, charsPerLine: 15})} className="peer appearance-none w-[22px] h-[22px] border-[2.5px] border-slate-300 rounded-full checked:border-teal-600 transition-all cursor-pointer bg-white" />
+                                        <div className="absolute w-[10px] h-[10px] bg-teal-600 rounded-full opacity-0 peer-checked:opacity-100 transition-all pointer-events-none"></div>
+                                    </div>
+                                    <span className="font-bold text-slate-800 text-[1.1rem]">15<Rb t="文字" r="もじ"/> × 16<Rb t="行" r="ぎょう"/> (<Rb t="低学年" r="ていがくねん"/>)</span>
+                                </label>
+                            </div>
+                        </div>
+
+                        {/* 禁則処理 */}
+                        <div>
+                            <h4 className="font-bold text-slate-800 text-[1.1rem] mb-4"><Rb t="禁則処理" r="きんそくしょり"/></h4>
+                            <div className="space-y-5 pl-2">
+                                <label className="flex items-start gap-4 cursor-pointer group">
+                                    <div className="relative flex items-center justify-center mt-1 shrink-0">
+                                        <input type="radio" name="kinsoku" checked={settings.kinsokuMode === 'oidashi'} onChange={() => setSettings({...settings, kinsokuMode: 'oidashi'})} className="peer appearance-none w-[22px] h-[22px] border-[2.5px] border-slate-300 rounded-full checked:border-teal-600 transition-all cursor-pointer bg-white" />
+                                        <div className="absolute w-[10px] h-[10px] bg-teal-600 rounded-full opacity-0 peer-checked:opacity-100 transition-all pointer-events-none"></div>
+                                    </div>
+                                    <span className="font-bold text-slate-800 text-[1.1rem] leading-relaxed">
+                                        <Rb t="追" r="お"/>い<Rb t="出" r="だ"/>し <span className="font-medium text-slate-600 text-[1rem]">（<Rb t="前行末" r="ぜんぎょうまつ"/>の<Rb t="文字" r="もじ"/>を<Rb t="次行" r="じぎょう"/>に<Rb t="送" r="おく"/>る）</span>
+                                    </span>
+                                </label>
+                                <label className="flex items-start gap-4 cursor-pointer group">
+                                    <div className="relative flex items-center justify-center mt-1 shrink-0">
+                                        <input type="radio" name="kinsoku" checked={settings.kinsokuMode === 'burasagari'} onChange={() => setSettings({...settings, kinsokuMode: 'burasagari'})} className="peer appearance-none w-[22px] h-[22px] border-[2.5px] border-slate-300 rounded-full checked:border-teal-600 transition-all cursor-pointer bg-white" />
+                                        <div className="absolute w-[10px] h-[10px] bg-teal-600 rounded-full opacity-0 peer-checked:opacity-100 transition-all pointer-events-none"></div>
+                                    </div>
+                                    <span className="font-bold text-slate-800 text-[1.1rem] leading-relaxed">
+                                        ぶら<Rb t="下" r="さ"/>がり <span className="font-medium text-slate-600 text-[1rem]">（マス<Rb t="外" r="そと"/>に<Rb t="小" r="ちい"/>さく<Rb t="表示" r="ひょうじ"/>）</span>
+                                    </span>
+                                </label>
+                            </div>
+                        </div>
+
+                        <div className="flex justify-end pt-4">
+                            <button onClick={() => setSettingsModalOpen(false)} className="px-8 pt-3 pb-2 rounded-xl bg-slate-800 text-white font-bold hover:bg-slate-700 transition-all active:scale-95 shadow-sm leading-loose">
+                                <Rb t="保存" r="ほぞん"/>して<Rb t="閉" r="と"/>じる
+                            </button>
+                        </div>
+                    </div>
+                </Modal>
+            </div>
+        );
+    };
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App />);
+  </script>
 </body>
 </html>
