@@ -174,7 +174,9 @@
 
           if (originalH > 10 && availableH > 10) {
             let s = availableH / originalH;
-            if (s > 1) s = 1; // 拡大はしない
+            
+            // 【変更点】 拡大制限 (if (s > 1) s = 1;) を解除し、画面の高さに合わせて拡大するように修正
+            if (s > 3) s = 3; // 念のため極端な拡大（3倍以上）は防ぐ
             if (s < 0.1) s = 0.1;
             
             setDims(prev => {
