@@ -236,7 +236,8 @@
             className="w-full h-full overflow-auto relative hide-scrollbar p-6" 
             style={{ direction: 'rtl' }}>
             <div style={{ direction: 'ltr' }} className="flex-shrink-0 w-max h-max mx-auto">
-              <div style={{ width: dims.w > 0 ? dims.w * scale : '100%', height: dims.h > 0 ? dims.h * scale : '100%', position: 'relative' }} className="transition-all duration-300 ease-out">
+              {/* 【変更点】 transition-all duration-300 ease-out を削除し、開いた瞬間にスナップするように修正 */}
+              <div style={{ width: dims.w > 0 ? dims.w * scale : '100%', height: dims.h > 0 ? dims.h * scale : '100%', position: 'relative' }}>
                 <div ref={contentRef} style={{ transform: `scale(${scale})`, transformOrigin: 'top right', position: 'absolute', top: 0, right: 0 }} className="shadow-xl rounded-sm bg-paper inline-block border border-slate-200">
                   {children}
                 </div>
@@ -359,13 +360,13 @@
     // ==========================================
 
     const Header = ({ onSettingClick }) => (
-        <nav className="bg-white border-b-4 border-amber-500 px-6 py-2.5 flex justify-between items-center shrink-0 shadow-sm z-10 no-print">
+        <nav className="bg-white border-b-4 border-amber-500 px-4 md:px-6 py-2.5 flex justify-between items-center shrink-0 shadow-sm z-10 no-print">
             <div className="flex items-center gap-3 hover:opacity-80 transition-all">
                 <div className="p-2 rounded-xl text-white shadow-sm bg-amber-500">
                     <i className="bi bi-pencil-square text-[24px]"></i>
                 </div>
                 <div className="flex items-baseline gap-2">
-                    <span className="font-bold text-xl tracking-wide pt-2 text-amber-600">オンライン<Rb t="原稿用紙" r="げんこうようし"/></span>
+                    <span className="font-bold text-lg md:text-xl tracking-wide pt-2 text-amber-600">オンライン<Rb t="原稿用紙" r="げんこうようし"/></span>
                     <span className="px-2 py-0.5 rounded-full text-xs font-bold text-white shadow-sm bg-amber-500 relative -top-[1px]">Lite</span>
                 </div>
             </div>
@@ -374,60 +375,6 @@
             </button>
         </nav>
     );
-
-    const InputPanel = ({ doc, updateDoc, onNew, onLoad, onDownload, textareaRef, onScroll }) => {
-        const handleChange = (e) => updateDoc({ [e.target.name]: e.target.value });
-        const charCount = (doc.content || '').length;
-
-        return (
-            <div className="w-[380px] lg:w-[420px] bg-white rounded-2xl shadow-sm border border-slate-200 flex flex-col overflow-hidden shrink-0 h-full no-print">
-                <div className="p-5 border-b border-slate-100 bg-slate-50 shrink-0">
-                    <div className="text-sm font-bold text-slate-500 mb-2 pt-1 leading-loose">
-                        <i className="bi bi-person-vcard"></i> <Rb t="基本情報" r="きほんじょうほう"/>
-                    </div>
-                    <input type="text" name="title" value={doc.title} onChange={handleChange} placeholder="だいめい" 
-                           className="w-full px-4 py-3 mb-3 border border-slate-200 rounded-xl outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-100 font-bold text-lg transition-all bg-white text-slate-800" />
-                    <div className="flex gap-3">
-                        <input type="text" name="class" value={doc.class} onChange={handleChange} placeholder="がくねん・くみ" 
-                               className="w-1/3 px-4 py-2 border border-slate-200 rounded-xl outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-100 transition-all bg-white text-slate-800 text-sm" />
-                        <input type="text" name="name" value={doc.name} onChange={handleChange} placeholder="なまえ" 
-                               className="flex-1 px-4 py-2 border border-slate-200 rounded-xl outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-100 transition-all bg-white text-slate-800 text-sm" />
-                    </div>
-                </div>
-
-                <div className="flex-1 relative bg-amber-50/30">
-                    <textarea 
-                        ref={textareaRef}
-                        onScroll={onScroll}
-                        name="content" value={doc.content} onChange={handleChange}
-                        placeholder="ここをクリックして、さくぶんをかいてください..."
-                        className="w-full h-full resize-none border-none p-6 text-lg focus:outline-none focus:bg-amber-50/60 text-slate-800 leading-[2.5rem] bg-transparent hide-scrollbar transition-colors"
-                        style={{ 
-                            backgroundImage: 'linear-gradient(to bottom, transparent calc(100% - 1px), #cbd5e1 calc(100% - 1px))',
-                            backgroundSize: '100% 2.5rem',
-                            backgroundPosition: '0 1.5rem',
-                            backgroundAttachment: 'local'
-                        }}
-                    />
-                    <div className="absolute bottom-4 right-4 bg-white/90 px-4 py-1.5 rounded-full shadow-sm border border-slate-200 text-sm font-bold text-amber-600 backdrop-blur-sm">
-                        {charCount.toLocaleString()} <Rb t="文字" r="もじ"/>
-                    </div>
-                </div>
-
-                <div className="p-5 border-t border-slate-100 bg-white grid grid-cols-2 gap-3 shrink-0">
-                    <button onClick={onNew} className="flex items-center justify-center gap-2 pt-4 pb-2.5 border border-slate-200 rounded-xl bg-slate-50 hover:bg-slate-100 font-bold text-slate-700 transition-all active:scale-95 leading-loose">
-                        <i className="bi bi-file-earmark-plus text-[18px]"></i> <span><Rb t="新規" r="しんき"/></span>
-                    </button>
-                    <button onClick={onLoad} className="flex items-center justify-center gap-2 pt-4 pb-2.5 border border-amber-200 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-700 font-bold transition-all active:scale-95 leading-loose">
-                        <i className="bi bi-folder2-open text-[18px]"></i> <span><Rb t="開" r="ひら"/>く</span>
-                    </button>
-                    <button onClick={onDownload} className="col-span-2 flex items-center justify-center gap-2 pt-4 pb-3 bg-gradient-to-r from-slate-700 to-slate-800 text-white rounded-xl font-bold hover:from-slate-800 hover:to-slate-900 transition-all active:scale-95 shadow-md hover:shadow-lg leading-loose">
-                        <i className="bi bi-download text-[18px]"></i> <span><Rb t="保存" r="ほぞん"/>する</span>
-                    </button>
-                </div>
-            </div>
-        );
-    };
 
     // 行単位での再レンダリングを防ぐためのメモ化コンポーネント（極限最適化）
     const GenkoLine = React.memo(({ rowData, chars, cellSize, isFirst, isLast }) => {
@@ -583,6 +530,9 @@
         const [isInitialLoad, setIsInitialLoad] = useState(true);
         const [isSettingsModalOpen, setSettingsModalOpen] = useState(false);
 
+        const handleChange = (e) => setDoc(prev => ({ ...prev, [e.target.name]: e.target.value }));
+        const charCount = (doc.content || '').length;
+
         // スクロール同期用のRefとフラグ
         const textareaRef = useRef(null);
         const previewContainerRef = useRef(null);
@@ -729,33 +679,75 @@
             <div className="h-screen w-full flex flex-col font-sans">
                 <Header onSettingClick={() => setSettingsModalOpen(true)} />
                 
-                <main className="flex-1 flex p-4 gap-4 overflow-hidden h-full no-print">
-                    <InputPanel 
-                        doc={doc} 
-                        updateDoc={(updates) => setDoc(prev => ({...prev, ...updates}))}
-                        onNew={handleNew} 
-                        onLoad={handleLoad} 
-                        onDownload={handleDownload} 
-                        textareaRef={textareaRef}
-                        onScroll={handleTextareaScroll}
-                    />
+                {/* 【変更点】 スマホではボタンを下に、本文とプレビューを並べるためにGridレイアウトを採用 */}
+                <main className="flex-1 grid grid-cols-1 md:grid-cols-[380px_1fr] lg:grid-cols-[420px_1fr] md:grid-rows-[1fr_auto] p-2 md:p-4 gap-2 md:gap-4 overflow-hidden h-full no-print">
                     
-                    {/* 右側：プレビューパネル */}
-                    <div className="flex-1 bg-white rounded-2xl shadow-sm border border-slate-200 flex flex-col overflow-hidden relative min-w-0">
-                        <div className="absolute top-4 right-4 z-20">
-                            <button onClick={() => window.print()} className="px-4 pt-3 pb-2 rounded-xl font-bold text-amber-600 bg-amber-50 hover:bg-amber-100 border border-amber-200 transition-all active:scale-95 flex items-center gap-2 shadow-sm leading-loose">
-                                <i className="bi bi-printer text-[18px] -mt-1"></i><span><Rb t="印刷" r="いんさつ"/>する</span>
+                    {/* 1. 入力エリア (スマホ: 1番目, PC: 左カラム上部) */}
+                    <div className="order-1 md:col-start-1 md:row-start-1 bg-white rounded-2xl md:rounded-b-none shadow-sm border border-slate-200 flex flex-col overflow-hidden min-h-[25vh] md:min-h-0 z-10 md:border-b-0">
+                        <div className="p-4 md:p-5 border-b border-slate-100 bg-slate-50 shrink-0">
+                            <div className="text-sm font-bold text-slate-500 mb-2 pt-1 leading-loose">
+                                <i className="bi bi-person-vcard"></i> <Rb t="基本情報" r="きほんじょうほう"/>
+                            </div>
+                            <input type="text" name="title" value={doc.title} onChange={handleChange} placeholder="だいめい" 
+                                   className="w-full px-4 py-3 mb-3 border border-slate-200 rounded-xl outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-100 font-bold text-lg transition-all bg-white text-slate-800" />
+                            <div className="flex gap-3">
+                                <input type="text" name="class" value={doc.class} onChange={handleChange} placeholder="がくねん・くみ" 
+                                       className="w-1/3 px-4 py-2 border border-slate-200 rounded-xl outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-100 transition-all bg-white text-slate-800 text-sm" />
+                                <input type="text" name="name" value={doc.name} onChange={handleChange} placeholder="なまえ" 
+                                       className="flex-1 px-4 py-2 border border-slate-200 rounded-xl outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-100 transition-all bg-white text-slate-800 text-sm" />
+                            </div>
+                        </div>
+
+                        <div className="flex-1 relative bg-amber-50/30 min-h-[100px]">
+                            <textarea 
+                                ref={textareaRef}
+                                onScroll={handleTextareaScroll}
+                                name="content" value={doc.content} onChange={handleChange}
+                                placeholder="ここをクリックして、さくぶんをかいてください..."
+                                className="w-full h-full resize-none border-none p-4 md:p-6 text-lg focus:outline-none focus:bg-amber-50/60 text-slate-800 leading-[2.5rem] bg-transparent hide-scrollbar transition-colors"
+                                style={{ 
+                                    backgroundImage: 'linear-gradient(to bottom, transparent calc(100% - 1px), #cbd5e1 calc(100% - 1px))',
+                                    backgroundSize: '100% 2.5rem',
+                                    backgroundPosition: '0 1.5rem',
+                                    backgroundAttachment: 'local'
+                                }}
+                            />
+                            <div className="absolute bottom-4 right-4 bg-white/90 px-4 py-1.5 rounded-full shadow-sm border border-slate-200 text-sm font-bold text-amber-600 backdrop-blur-sm pointer-events-none">
+                                {charCount.toLocaleString()} <Rb t="文字" r="もじ"/>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* 2. プレビューエリア (スマホ: 2番目, PC: 右カラム全体) */}
+                    <div className="order-2 md:col-start-2 md:row-start-1 md:row-span-2 bg-white rounded-2xl shadow-sm border border-slate-200 flex flex-col overflow-hidden relative min-w-0 min-h-[40vh] md:min-h-0">
+                        <div className="absolute top-2 right-2 md:top-4 md:right-4 z-20">
+                            <button onClick={() => window.print()} className="px-3 pt-2 pb-1.5 md:px-4 md:pt-3 md:pb-2 rounded-xl font-bold text-amber-600 bg-amber-50 hover:bg-amber-100 border border-amber-200 transition-all active:scale-95 flex items-center gap-2 shadow-sm leading-loose">
+                                <i className="bi bi-printer text-[16px] md:text-[18px] -mt-1"></i><span className="text-sm md:text-base"><Rb t="印刷" r="いんさつ"/>する</span>
                             </button>
                         </div>
                         <ScalableWrapper scrollContainerRef={previewContainerRef} onScroll={handlePreviewScroll}>
                             <GenkoPaperPreview parsedGenko={parsedGenko} settings={settings} />
                         </ScalableWrapper>
                     </div>
+
+                    {/* 3. ボタンエリア (スマホ: 3番目, PC: 左カラム下部) */}
+                    <div className="order-3 md:col-start-1 md:row-start-2 p-3 md:p-5 border border-slate-200 bg-white rounded-2xl md:rounded-t-none md:border-t-0 grid grid-cols-2 gap-2 md:gap-3 shrink-0 shadow-sm z-10">
+                        <button onClick={handleNew} className="flex items-center justify-center gap-2 pt-3 pb-2 md:pt-4 md:pb-2.5 border border-slate-200 rounded-xl bg-slate-50 hover:bg-slate-100 font-bold text-slate-700 transition-all active:scale-95 leading-loose">
+                            <i className="bi bi-file-earmark-plus text-[18px]"></i> <span><Rb t="新規" r="しんき"/></span>
+                        </button>
+                        <button onClick={handleLoad} className="flex items-center justify-center gap-2 pt-3 pb-2 md:pt-4 md:pb-2.5 border border-amber-200 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-700 font-bold transition-all active:scale-95 leading-loose">
+                            <i className="bi bi-folder2-open text-[18px]"></i> <span><Rb t="開" r="ひら"/>く</span>
+                        </button>
+                        <button onClick={handleDownload} className="col-span-2 flex items-center justify-center gap-2 pt-3 pb-2 md:pt-4 md:pb-3 bg-gradient-to-r from-slate-700 to-slate-800 text-white rounded-xl font-bold hover:from-slate-800 hover:to-slate-900 transition-all active:scale-95 shadow-md hover:shadow-lg leading-loose">
+                            <i className="bi bi-download text-[18px]"></i> <span><Rb t="保存" r="ほぞん"/>する</span>
+                        </button>
+                    </div>
+
                 </main>
 
                 {/* フッター */}
-                <footer className="flex-shrink-0 w-full bg-white border-t border-slate-200 pt-3 pb-2 text-center text-sm text-slate-500 font-bold no-print z-40 shadow-sm relative">
-                    &copy; 2026 オンライン原稿用紙 Lite. データはあなたの端末にのみ保存されます。
+                <footer className="flex-shrink-0 w-full bg-white border-t border-slate-200 pt-3 pb-2 text-center text-xs md:text-sm text-slate-500 font-bold no-print z-40 shadow-sm relative">
+                    &copy; 2026 オンライン原稿用紙 Lite. <a href="https://note.com/cute_borage86" target="_blank" rel="noopener noreferrer" className="text-inherit no-underline hover:opacity-80 transition-opacity">GIGA山</a>
                 </footer>
 
                 {/* 印刷用DOM */}
