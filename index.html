@@ -272,7 +272,7 @@
                 });
                 lines.push(line);
             });
-            if(lines.length === 0 || (doc.title && lines.length > 0)) lines.push(Array(chars).fill(''));
+            if(lines.length === 0 && !doc.title) lines.push(Array(chars).fill(''));
 
             const footerText = (`${doc.class || ''} ${doc.name || ''}`).trim();
             if(footerText) {
@@ -282,7 +282,6 @@
                     if(start + i < chars) line[start + i] = c;
                 });
                 lines.push(line);
-                lines.push(Array(chars).fill(''));
             }
 
             // --- 本文生成（禁則処理と圧縮） ---
