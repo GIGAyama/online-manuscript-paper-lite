@@ -2,9 +2,19 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="description" content="ブラウザだけで動く縦書き原稿用紙アプリ。入力すると縦書きでリアルタイムにプレビューされ、A4横向きで印刷できます。">
+  <meta name="theme-color" content="#f59e0b">
   <link rel="icon" href="favicon.png">
   <title>オンライン原稿用紙 Lite</title>
+
+  <!-- PWA -->
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="原稿用紙Lite">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
 
   <!-- Tailwind CSS -->
   <script src="https://cdn.tailwindcss.com"></script>
@@ -50,6 +60,18 @@
     ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
 
     .vertical-rl { writing-mode: vertical-rl; text-orientation: mixed; }
+
+    /* アプリ全体の高さ: モバイルブラウザのアドレスバー伸縮に追従する dvh を優先 */
+    .app-shell { height: 100vh; }
+    @supports (height: 100dvh) { .app-shell { height: 100dvh; } }
+
+    /* 初期ロード中のスピナー */
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .boot-spinner {
+      width: 40px; height: 40px; border-radius: 50%;
+      border: 4px solid #fde68a; border-top-color: #f59e0b;
+      animation: spin 0.8s linear infinite;
+    }
 
     /* モーダルアニメーション */
     @keyframes modalFadeIn { 0% { opacity: 0; transform: translateY(20px); } 100% { opacity: 1; transform: translateY(0); } }
@@ -111,7 +133,35 @@
   </style>
 </head>
 <body class="selection:bg-amber-200 bg-amber-50/40 text-slate-800 overflow-hidden print:overflow-visible">
-  <div id="root"></div>
+  <div id="root">
+    <div style="height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;color:#b45309;font-weight:bold;">
+      <div class="boot-spinner"></div>
+      <div>よみこみちゅう…</div>
+    </div>
+  </div>
+
+  <script>
+    // PWA: インストールプロンプトを捕捉して、アプリ内の「インストール」ボタンから呼び出せるようにする
+    window.deferredInstallPrompt = null;
+    window.addEventListener('beforeinstallprompt', (e) => {
+      e.preventDefault();
+      window.deferredInstallPrompt = e;
+      window.dispatchEvent(new Event('pwa-installable'));
+    });
+    window.addEventListener('appinstalled', () => {
+      window.deferredInstallPrompt = null;
+      window.dispatchEvent(new Event('pwa-installed'));
+    });
+
+    // Service Worker 登録 (file:// で直接開いた場合はオフラインキャッシュなしで動作)
+    if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('./sw.js').catch((err) => {
+          console.warn('Service Worker registration failed:', err);
+        });
+      });
+    }
+  </script>
 
   <script type="text/babel">
     const { useState, useEffect, useMemo, useRef, useCallback } = React;
@@ -165,7 +215,7 @@
         let reqId;
         const updateScale = () => {
           if (!containerRef.current || !contentRef.current) return;
-          const availableH = containerRef.current.clientHeight - 40; // 上下余白
+          const availableH = containerRef.current.clientHeight - 48; // 上下余白 (p-6 = 24px x 2)
           const firstChild = contentRef.current.firstElementChild;
           if (!firstChild) return;
           
@@ -193,8 +243,9 @@
         if (containerRef.current) observer.observe(containerRef.current);
         if (contentRef.current && contentRef.current.firstElementChild) observer.observe(contentRef.current.firstElementChild);
 
-        updateScale(); setTimeout(updateScale, 100);
-        return () => { observer.disconnect(); cancelAnimationFrame(reqId); };
+        updateScale();
+        const timeoutId = setTimeout(updateScale, 100);
+        return () => { observer.disconnect(); cancelAnimationFrame(reqId); clearTimeout(timeoutId); };
       }, [children]);
 
       // 縦・横どちらのスクロール操作でも、プレビュー画面を横スクロールさせる
@@ -266,7 +317,7 @@
                 if(!p && lines.length === 0) return;
                 let line = Array(chars).fill('');
                 let cursor = 2; // 2マス下げる
-                p.split('').forEach(c => {
+                Array.from(p).forEach(c => {
                     if(cursor >= chars) { lines.push(line); line = Array(chars).fill(''); cursor = 0; }
                     line[cursor++] = c;
                 });
@@ -278,21 +329,21 @@
             if(footerText) {
                 let line = Array(chars).fill('');
                 let start = Math.max(0, chars - footerText.length - 1); // 下から1マス空ける
-                footerText.split('').forEach((c, i) => {
+                Array.from(footerText).forEach((c, i) => {
                     if(start + i < chars) line[start + i] = c;
                 });
                 lines.push(line);
             }
 
             // --- 本文生成（禁則処理と圧縮） ---
-            const noStart = ['、','。','」','』','）','っ','ゃ','ゅ','ょ','ッ','ャ','ュ','ョ','ー',',','.','」','』',']','}','>','ぁ','ぃ','ぅ','ぇ','ぉ','ァ','ィ','ゥ','ェ','ォ','ヮ','ヵ','ヶ','・','？','！','‼','⁇','々'];
+            const noStart = ['、','。','」','』','）','っ','ゃ','ゅ','ょ','ッ','ャ','ュ','ョ','ー',',','.',']','}','>','ぁ','ぃ','ぅ','ぇ','ぉ','ァ','ィ','ゥ','ェ','ォ','ヮ','ヵ','ヶ','・','？','！','‼','⁇','々'];
             const noEnd = ['「', '『', '（', '(', '[', '{', '<', '【', '〔', '［'];
             const compressionPairs = ['。」', '。』', '。）', '、」', '、』', '、）', '！』', '！」', '？』', '？」'];
             
             (doc.content || '').split('\n').forEach(p => {
                 if(!p) { lines.push(Array(chars).fill('')); return; }
                 let line = [];
-                const pChars = p.split('');
+                const pChars = Array.from(p);
                 let i = 0;
                 
                 while(i < pChars.length) {
@@ -360,20 +411,27 @@
     // UI コンポーネント
     // ==========================================
 
-    const Header = ({ onSettingClick }) => (
-        <nav className="bg-white border-b-4 border-amber-500 px-4 md:px-6 py-2.5 flex justify-between items-center shrink-0 shadow-sm z-10 no-print">
-            <div className="flex items-center gap-3 hover:opacity-80 transition-all">
-                <div className="p-2 rounded-xl text-white shadow-sm bg-amber-500">
-                    <i className="bi bi-pencil-square text-[24px]"></i>
+    const Header = ({ onSettingClick, canInstall, onInstallClick }) => (
+        <nav className="bg-white border-b-4 border-amber-500 px-3 md:px-6 py-2 md:py-2.5 flex justify-between items-center shrink-0 shadow-sm z-10 no-print">
+            <div className="flex items-center gap-2 md:gap-3 hover:opacity-80 transition-all min-w-0">
+                <div className="p-1.5 md:p-2 rounded-xl text-white shadow-sm bg-amber-500 shrink-0">
+                    <i className="bi bi-pencil-square text-[20px] md:text-[24px]"></i>
                 </div>
-                <div className="flex items-baseline gap-2">
-                    <span className="font-bold text-lg md:text-xl tracking-wide pt-2 text-amber-600">オンライン<Rb t="原稿用紙" r="げんこうようし"/></span>
-                    <span className="px-2 py-0.5 rounded-full text-xs font-bold text-white shadow-sm bg-amber-500 relative -top-[1px]">Lite</span>
+                <div className="flex items-baseline gap-2 min-w-0">
+                    <span className="font-bold text-base md:text-xl tracking-wide pt-2 text-amber-600 truncate">オンライン<Rb t="原稿用紙" r="げんこうようし"/></span>
+                    <span className="px-2 py-0.5 rounded-full text-xs font-bold text-white shadow-sm bg-amber-500 relative -top-[1px] shrink-0">Lite</span>
                 </div>
             </div>
-            <button onClick={onSettingClick} className="p-2 pt-3 text-slate-500 hover:bg-slate-100 rounded-full transition-all active:scale-95" title="設定">
-                <i className="bi bi-gear text-[22px]"></i>
-            </button>
+            <div className="flex items-center gap-1 md:gap-2 shrink-0">
+                {canInstall && (
+                    <button onClick={onInstallClick} className="flex items-center gap-1.5 px-2.5 md:px-3 pt-2 pb-1.5 rounded-xl font-bold text-amber-600 bg-amber-50 hover:bg-amber-100 border border-amber-200 transition-all active:scale-95 leading-loose" title="アプリとしてインストール">
+                        <i className="bi bi-box-arrow-down text-[16px] -mt-1"></i><span className="text-xs md:text-sm">インストール</span>
+                    </button>
+                )}
+                <button onClick={onSettingClick} className="p-2 pt-3 text-slate-500 hover:bg-slate-100 rounded-full transition-all active:scale-95" title="設定">
+                    <i className="bi bi-gear text-[22px]"></i>
+                </button>
+            </div>
         </nav>
     );
 
@@ -530,9 +588,12 @@
         const [doc, setDoc] = useState({ title: '', class: '', name: '', content: '' });
         const [isInitialLoad, setIsInitialLoad] = useState(true);
         const [isSettingsModalOpen, setSettingsModalOpen] = useState(false);
+        // モバイル表示 (md未満) では「かく」と「原稿用紙」をタブで切り替えて全画面表示する
+        const [mobileView, setMobileView] = useState('edit');
+        const [canInstall, setCanInstall] = useState(!!window.deferredInstallPrompt);
 
         const handleChange = (e) => setDoc(prev => ({ ...prev, [e.target.name]: e.target.value }));
-        const charCount = (doc.content || '').length;
+        const charCount = Array.from(doc.content || '').length;
 
         // スクロール同期用のRefとフラグ
         const textareaRef = useRef(null);
@@ -604,6 +665,31 @@
             }, 1000);
             return () => clearTimeout(timer);
         }, [doc, settings, isInitialLoad]);
+
+        // PWA インストール可否の監視
+        useEffect(() => {
+            const onInstallable = () => setCanInstall(true);
+            const onInstalled = () => {
+                setCanInstall(false);
+                Toast.fire({ icon: 'success', html: '<span class="font-bold">アプリをインストールしました</span>' });
+            };
+            window.addEventListener('pwa-installable', onInstallable);
+            window.addEventListener('pwa-installed', onInstalled);
+            return () => {
+                window.removeEventListener('pwa-installable', onInstallable);
+                window.removeEventListener('pwa-installed', onInstalled);
+            };
+        }, []);
+
+        const handleInstall = async () => {
+            const promptEvent = window.deferredInstallPrompt;
+            if (!promptEvent) return;
+            promptEvent.prompt();
+            await promptEvent.userChoice;
+            // prompt() は1度しか呼べないため、結果に関わらず破棄する
+            window.deferredInstallPrompt = null;
+            setCanInstall(false);
+        };
 
         const parsedGenko = useGenkoParser(doc, settings);
 
@@ -677,14 +763,27 @@
         };
 
         return (
-            <div className="h-screen w-full flex flex-col font-sans">
-                <Header onSettingClick={() => setSettingsModalOpen(true)} />
-                
-                {/* 【変更点】 スマホではボタンを下に、本文とプレビューを並べるためにGridレイアウトを採用 */}
-                <main className="flex-1 grid grid-cols-1 md:grid-cols-[minmax(300px,380px)_1fr] lg:grid-cols-[minmax(320px,420px)_1fr] md:grid-rows-[1fr_auto] p-2 md:p-4 gap-2 md:gap-4 overflow-hidden h-full no-print">
-                    
-                    {/* 1. 入力エリア (スマホ: 1番目, PC: 左カラム上部) */}
-                    <div className="order-1 md:col-start-1 md:row-start-1 bg-white rounded-2xl md:rounded-b-none shadow-sm border border-slate-200 flex flex-col overflow-hidden min-h-[25vh] md:min-h-0 z-10 md:border-b-0">
+            <div className="app-shell w-full flex flex-col font-sans">
+                <Header onSettingClick={() => setSettingsModalOpen(true)} canInstall={canInstall} onInstallClick={handleInstall} />
+
+                {/* PC(md以上): 左カラム(入力+ボタン)と右カラム(プレビュー)のGrid。
+                    スマホ・タブレット縦(md未満): タブで「かく」「原稿用紙」を切り替えて全画面表示 */}
+                <main className="flex-1 min-h-0 flex flex-col md:grid md:grid-cols-[minmax(300px,380px)_1fr] lg:grid-cols-[minmax(320px,420px)_1fr] md:grid-rows-[1fr_auto] p-2 md:p-4 gap-2 md:gap-4 overflow-hidden no-print">
+
+                    {/* 0. モバイル用タブ切り替え */}
+                    <div className="md:hidden flex bg-white rounded-xl border border-slate-200 p-1 gap-1 shrink-0 shadow-sm">
+                        <button onClick={() => setMobileView('edit')}
+                                className={`flex-1 flex items-center justify-center gap-1.5 pt-2.5 pb-1.5 rounded-lg font-bold text-sm transition-all active:scale-95 leading-loose ${mobileView === 'edit' ? 'bg-amber-500 text-white shadow-sm' : 'text-slate-500 hover:bg-slate-50'}`}>
+                            <i className="bi bi-pencil-fill text-[14px] -mt-1"></i> <span>かく</span>
+                        </button>
+                        <button onClick={() => setMobileView('preview')}
+                                className={`flex-1 flex items-center justify-center gap-1.5 pt-2.5 pb-1.5 rounded-lg font-bold text-sm transition-all active:scale-95 leading-loose ${mobileView === 'preview' ? 'bg-amber-500 text-white shadow-sm' : 'text-slate-500 hover:bg-slate-50'}`}>
+                            <i className="bi bi-eye-fill text-[14px] -mt-1"></i> <span><Rb t="原稿用紙" r="げんこうようし"/>をみる</span>
+                        </button>
+                    </div>
+
+                    {/* 1. 入力エリア (スマホ: 「かく」タブ, PC: 左カラム上部) */}
+                    <div className={`${mobileView === 'edit' ? 'flex' : 'hidden'} md:flex flex-1 min-h-0 md:col-start-1 md:row-start-1 bg-white rounded-2xl md:rounded-b-none shadow-sm border border-slate-200 flex-col overflow-hidden z-10 md:border-b-0`}>
                         <div className="p-4 md:p-5 border-b border-slate-100 bg-slate-50 shrink md:max-h-[30vh] overflow-auto">
                             <div className="text-sm font-bold text-slate-500 mb-1 md:mb-2 pt-1 leading-loose">
                                 <i className="bi bi-person-vcard"></i> <Rb t="基本情報" r="きほんじょうほう"/>
@@ -719,8 +818,8 @@
                         </div>
                     </div>
 
-                    {/* 2. プレビューエリア (スマホ: 2番目, PC: 右カラム全体) */}
-                    <div className="order-2 md:col-start-2 md:row-start-1 md:row-span-2 bg-white rounded-2xl shadow-sm border border-slate-200 flex flex-col overflow-hidden relative min-w-0 min-h-[35vh] md:min-h-0">
+                    {/* 2. プレビューエリア (スマホ: 「原稿用紙」タブ, PC: 右カラム全体) */}
+                    <div className={`${mobileView === 'preview' ? 'flex' : 'hidden'} md:flex flex-1 min-h-0 md:col-start-2 md:row-start-1 md:row-span-2 bg-white rounded-2xl shadow-sm border border-slate-200 flex-col overflow-hidden relative min-w-0`}>
                         <div className="absolute top-2 right-2 md:top-4 md:right-4 z-20">
                             <button onClick={() => window.print()} className="px-3 pt-2 pb-1.5 md:px-4 md:pt-3 md:pb-2 rounded-xl font-bold text-amber-600 bg-amber-50 hover:bg-amber-100 border border-amber-200 transition-all active:scale-95 flex items-center gap-2 shadow-sm leading-loose">
                                 <i className="bi bi-printer text-[16px] md:text-[18px] -mt-1"></i><span className="text-sm md:text-base"><Rb t="印刷" r="いんさつ"/>する</span>
@@ -731,23 +830,23 @@
                         </ScalableWrapper>
                     </div>
 
-                    {/* 3. ボタンエリア (スマホ: 3番目, PC: 左カラム下部) */}
-                    <div className="order-3 md:col-start-1 md:row-start-2 p-3 md:p-5 border border-slate-200 bg-white rounded-2xl md:rounded-t-none md:border-t-0 grid grid-cols-2 gap-2 md:gap-3 shrink-0 shadow-sm z-10">
-                        <button onClick={handleNew} className="flex items-center justify-center gap-2 pt-3 pb-2 md:pt-4 md:pb-2.5 border border-slate-200 rounded-xl bg-slate-50 hover:bg-slate-100 font-bold text-slate-700 transition-all active:scale-95 leading-loose">
-                            <i className="bi bi-file-earmark-plus text-[18px]"></i> <span><Rb t="新規" r="しんき"/></span>
+                    {/* 3. ボタンエリア (スマホ: 最下部に1行, PC: 左カラム下部) */}
+                    <div className="md:col-start-1 md:row-start-2 p-2 md:p-5 border border-slate-200 bg-white rounded-2xl md:rounded-t-none md:border-t-0 grid grid-cols-3 md:grid-cols-2 gap-2 md:gap-3 shrink-0 shadow-sm z-10">
+                        <button onClick={handleNew} className="flex items-center justify-center gap-1.5 md:gap-2 pt-2.5 pb-1.5 md:pt-4 md:pb-2.5 border border-slate-200 rounded-xl bg-slate-50 hover:bg-slate-100 font-bold text-slate-700 transition-all active:scale-95 leading-loose text-sm md:text-base">
+                            <i className="bi bi-file-earmark-plus text-[16px] md:text-[18px]"></i> <span><Rb t="新規" r="しんき"/></span>
                         </button>
-                        <button onClick={handleLoad} className="flex items-center justify-center gap-2 pt-3 pb-2 md:pt-4 md:pb-2.5 border border-amber-200 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-700 font-bold transition-all active:scale-95 leading-loose">
-                            <i className="bi bi-folder2-open text-[18px]"></i> <span><Rb t="開" r="ひら"/>く</span>
+                        <button onClick={handleLoad} className="flex items-center justify-center gap-1.5 md:gap-2 pt-2.5 pb-1.5 md:pt-4 md:pb-2.5 border border-amber-200 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-700 font-bold transition-all active:scale-95 leading-loose text-sm md:text-base">
+                            <i className="bi bi-folder2-open text-[16px] md:text-[18px]"></i> <span><Rb t="開" r="ひら"/>く</span>
                         </button>
-                        <button onClick={handleDownload} className="col-span-2 flex items-center justify-center gap-2 pt-3 pb-2 md:pt-4 md:pb-3 bg-gradient-to-r from-slate-700 to-slate-800 text-white rounded-xl font-bold hover:from-slate-800 hover:to-slate-900 transition-all active:scale-95 shadow-md hover:shadow-lg leading-loose">
-                            <i className="bi bi-download text-[18px]"></i> <span><Rb t="保存" r="ほぞん"/>する</span>
+                        <button onClick={handleDownload} className="md:col-span-2 flex items-center justify-center gap-1.5 md:gap-2 pt-2.5 pb-1.5 md:pt-4 md:pb-3 bg-gradient-to-r from-slate-700 to-slate-800 text-white rounded-xl font-bold hover:from-slate-800 hover:to-slate-900 transition-all active:scale-95 shadow-md hover:shadow-lg leading-loose text-sm md:text-base">
+                            <i className="bi bi-download text-[16px] md:text-[18px]"></i> <span><Rb t="保存" r="ほぞん"/>する</span>
                         </button>
                     </div>
 
                 </main>
 
                 {/* フッター */}
-                <footer className="flex-shrink-0 w-full bg-white border-t border-slate-200 pt-3 pb-2 text-center text-xs md:text-sm text-slate-500 font-bold no-print z-40 shadow-sm relative">
+                <footer className="flex-shrink-0 w-full bg-white border-t border-slate-200 pt-1.5 pb-1 md:pt-3 md:pb-2 text-center text-[10px] md:text-sm text-slate-500 font-bold no-print z-40 shadow-sm relative">
                     &copy; 2026 オンライン原稿用紙 Lite. <a href="https://note.com/cute_borage86" target="_blank" rel="noopener noreferrer" className="text-inherit no-underline hover:opacity-80 transition-opacity">GIGA山</a>
                 </footer>
 
