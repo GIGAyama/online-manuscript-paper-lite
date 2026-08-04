@@ -1,0 +1,25 @@
+name: CI
+
+# pull_request でも動かす。push だけだと、PR の時点で落ちていることに気づけない。
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      # 生成物は GitHub Pages がそのまま配るのでコミットされている。
+      # 原本を直したのにビルドし忘れた PR は、ここで差分が出て落ちる。
+      - name: 生成物が原本と一致しているか
+        run: git diff --exit-code -- js css vendor
+      - run: npm run check
+      - run: npm test

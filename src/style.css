@@ -1,0 +1,253 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* =========================================================================
+ * オンライン原稿用紙 Lite — 追加スタイル（原本）
+ * ここを直したら `npm run build` を走らせてから push すること。
+ * 生成物は css/style.css（手で編集しない）。
+ * ========================================================================= */
+
+:root {
+  /* セーフエリア（ノッチ・ホームバー・丸角） */
+  --safe-t: env(safe-area-inset-top, 0px);
+  --safe-b: env(safe-area-inset-bottom, 0px);
+  --safe-l: env(safe-area-inset-left, 0px);
+  --safe-r: env(safe-area-inset-right, 0px);
+
+  /* 文字サイズ。メディアクエリを何段も書かず clamp() で連続的に変える */
+  --fs-body: clamp(15px, 1.6vw + 10px, 18px);
+  --fs-lead: clamp(18px, 2.2vw + 12px, 24px);
+  --fs-title: clamp(16px, 1.1vw + 11px, 22px);
+  /* 児童が実際に文章を打つ欄。ここが「主役」なので思い切って大きく */
+  --fs-editor: clamp(16px, 1.2vw + 12px, 20px);
+
+  color-scheme: light;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+body {
+  font-size: var(--fs-body);
+  /* ダブルタップ拡大の 300ms 遅延を消す。拡大そのものは禁止しない */
+  touch-action: manipulation;
+}
+
+* {
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* 画面の高さ。100vh はモバイルのアドレスバー分だけはみ出すので dvh を使う。
+ * さらに、ソフトキーボードが出ると dvh も変わらないため、
+ * 実際に見えている高さ（visualViewport）を --vvh として受け取り、
+ * それがあるときは優先する。原稿用紙は入力が主目的で、
+ * キーボードで入力欄が隠れると「打てない」＝機能が消える。 */
+.app-shell {
+  height: 100dvh;
+  height: var(--vvh, 100dvh);
+  padding-left: var(--safe-l);
+  padding-right: var(--safe-r);
+}
+@supports not (height: 100dvh) {
+  .app-shell { height: 100vh; height: var(--vvh, 100vh); }
+}
+
+/* 下部の固定要素はホームバー分を必ず足す */
+.safe-bottom { padding-bottom: calc(0.25rem + var(--safe-b)); }
+
+/* 引っぱり更新の暴発を防ぐ（原稿用紙を指でなぞって送るため） */
+.scroll-area { overscroll-behavior: contain; }
+
+/* キーボードで辿れることが分かるように。児童は Tab で移動することがある */
+:focus-visible {
+  outline: 3px solid #b45309;
+  outline-offset: 2px;
+}
+
+/* ---- タップ領域 44px ----------------------------------------------------
+ * ボタン自体を大きくすると詰めて組んだツールバーが折り返して別の破綻を生む。
+ * 疑似要素で「当たり判定だけ」を広げる。 */
+.tap-44 { position: relative; }
+.tap-44::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 100%;
+  height: 100%;
+  min-width: 44px;
+  min-height: 44px;
+}
+/* input は疑似要素を持てないので、高さそのものを確保する */
+.tap-44-box { min-height: 44px; }
+
+/* ---- ふりがな（rt） -----------------------------------------------------
+ * 色を決め打ちすると、色のついた面に重なったときに読めなくなる。
+ * ふりがなが要るのは低学年の児童なので、いちばん読めなくて困る人が
+ * いちばん読めない形になる。白地だけ既定値を与え、面の上では継がせる。 */
+rt { color: #5f6368; }
+button rt,
+a rt,
+label rt,
+[class*="bg-"] rt,
+[class*="btn"] rt,
+[class*="text-white"] rt { color: inherit; }
+
+/* ---- 案内・空状態の文字 --------------------------------------------------
+ * 「ここをクリックして、さくぶんをかいてください」のような案内文が
+ * いちばん薄いことが多い。装飾ではなく本文として扱う。
+ * Tailwind 既定のプレースホルダ色は #9ca3af（白地で 2.54）で基準に届かない。 */
+/* Tailwind の preflight は `input::placeholder, textarea::placeholder` という
+ * 詳細度で色を当てるので、`::placeholder` だけでは負けて効かない。同じ形で書く。
+ * 色は #475569。本文の下じきになっている罫線（#cbd5e1）の上でも 4.5:1 を満たす。 */
+input::placeholder,
+textarea::placeholder { color: #475569; opacity: 1; }
+input::-webkit-input-placeholder,
+textarea::-webkit-input-placeholder { color: #475569; }
+
+/* ---- スクロールバー ------------------------------------------------------ */
+.hide-scrollbar::-webkit-scrollbar { display: none; }
+.hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+
+.vertical-rl { writing-mode: vertical-rl; text-orientation: mixed; }
+
+/* ---- 起動中の表示 -------------------------------------------------------- */
+.boot-screen {
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  color: #b45309;
+  font-weight: 700;
+}
+@supports not (height: 100dvh) { .boot-screen { height: 100vh; } }
+@keyframes spin { to { transform: rotate(360deg); } }
+.boot-spinner {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: 4px solid #fde68a;
+  border-top-color: #b45309;
+  animation: spin 0.8s linear infinite;
+}
+
+/* ---- モーダル ------------------------------------------------------------ */
+@keyframes modalFadeIn {
+  0% { opacity: 0; transform: translateY(20px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+.animate-modal { animation: modalFadeIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+
+/* ---- 動きの配慮 ----------------------------------------------------------
+ * ⚠️ .01ms であって 0 ではない。0 にすると animation-fill-mode: forwards が
+ *    効かなくなり、フェードインする要素が opacity:0 のまま消える。
+ *    「動きを止める」つもりが「中身を消す」ことになる。 */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ---- ハイコントラストモード ---------------------------------------------- */
+@media (forced-colors: active) {
+  button, .btn, a[href] { border: 2px solid ButtonText; }
+  .genko-cell { border-color: CanvasText !important; }
+  .boot-spinner { border-color: CanvasText; border-top-color: Highlight; }
+}
+
+/* =========================================================================
+ * 印刷（A4横・二段組の原稿用紙）
+ * ========================================================================= */
+@media screen {
+  .print-only { display: none !important; }
+}
+@media print {
+  body {
+    background: white;
+    margin: 0;
+    padding: 0;
+    font-family: "Zen Old Mincho", "BIZ UDPMincho", serif;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  /* あとから足した固定要素（更新の帯・トースト）も必ず消えるように、
+     入れ子の深さに依存しない形で書く */
+  .no-print, nav, footer { display: none !important; }
+  .print-only { display: block !important; position: absolute; left: 0; top: 0; width: 100%; background: white; z-index: 9999; }
+  a[href]::after { content: ""; }
+
+  @page { size: A4 landscape; margin: 0; }
+
+  .print-page {
+    width: 297mm;
+    height: 210mm;
+    page-break-after: always;
+    break-after: page;
+    position: relative;
+    box-sizing: border-box;
+    padding: 10mm;
+    background: white;
+  }
+  .print-layout-grid {
+    width: 100%;
+    height: 100%;
+    display: grid;
+    grid-template-columns: 1fr 16mm 1fr;
+    border: 2px solid #2e7d32;
+    break-inside: avoid;
+  }
+  .print-gyobi-area {
+    border-left: 1px solid #2e7d32;
+    border-right: 1px solid #2e7d32;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    color: #2e7d32;
+  }
+  .gyobi-content { writing-mode: vertical-rl; display: flex; align-items: center; gap: 10mm; }
+  .gyobi-mark {
+    border: 1px solid #2e7d32;
+    width: 6mm;
+    height: 10mm;
+    border-radius: 50% 50% 0 0;
+    margin-bottom: 5mm;
+  }
+  .print-half-grid { display: flex; flex-direction: row-reverse; }
+  .print-line { flex: 1; display: flex; flex-direction: column; border-left: 1px solid rgba(46, 125, 50, 0.4); }
+  .print-half-grid.right-side .print-line:first-child { border-right: none; }
+  .print-half-grid.left-side .print-line:first-child { border-right: none; }
+  .print-cell {
+    flex: 1;
+    border-bottom: 1px solid rgba(46, 125, 50, 0.4);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    writing-mode: vertical-rl;
+    text-orientation: mixed;
+  }
+  .hanging-chars-print {
+    position: absolute;
+    top: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    white-space: nowrap;
+    writing-mode: vertical-rl;
+    font-size: 0.6em;
+    margin-top: -2mm;
+    line-height: 1;
+  }
+}
