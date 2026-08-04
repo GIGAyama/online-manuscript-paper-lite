@@ -50,9 +50,14 @@ index.html という1つのファイルをブラウザで開くだけで、誰�
 
 ### **方法B: ファイルとして配布する**
 
-1. index.html をダウンロードします。  
-2. Google ClassroomやMicrosoft Teams、USBメモリなどを通じて、児童・生徒の端末にファイルを配布します。  
-3. ファイルをダブルクリックしてブラウザ（ChromeやEdge）で開くだけで使えます。
+1. リポジトリ一式（`index.html` / `css/` / `js/` / `vendor/` / `icons/` など）をダウンロードします。  
+2. Google ClassroomやMicrosoft Teams、USBメモリなどを通じて、児童・生徒の端末に配布します。  
+3. `index.html` をダブルクリックしてブラウザ（ChromeやEdge）で開くだけで使えます。
+
+> `index.html` 1ファイルだけでは動きません。実行コードを CDN から取るのをやめ、
+> すべて自分側（`vendor/` `js/` `css/`）に置いたためです。理由は「ビルドと依存」の節にあります。
+> なお `file://` で開いた場合、アプリとしてのインストールとオフライン機能は働きません
+> （ブラウザの仕様）。書く・印刷するはできます。
 
 ## **📖 使い方（児童・生徒向け）**
 
@@ -67,13 +72,100 @@ index.html という1つのファイルをブラウザで開くだけで、誰�
 
 ## **🛠️ 技術スタック**
 
-* **HTML5 / CSS3 / JavaScript (ES6+)**: ビルド不要、index.html 1ファイル + PWA用アセットのシンプル構成。  
-* **React 18**: UIライブラリ（CDN + Babel Standaloneでビルドレス動作）。  
-* **Tailwind CSS**: スタイリング（Play CDN）。  
-* **Bootstrap Icons**: アイコン。  
-* **SweetAlert2**: 美しいダイアログ表示。  
-* **Google Fonts**: Zen丸ゴシック（UI用）、Zenオールド明朝（原稿用紙用）。  
-* **PWA**: Web App Manifest + Service Worker によるインストール・オフライン対応。
+* **HTML5 / CSS3 / JavaScript (ES6+)**
+* **React 18** … UIライブラリ。`vendor/` に自己ホスト
+* **Tailwind CSS 3** … スタイル。**ビルド時に**使うクラスだけの CSS を作る
+* **SweetAlert2** … 確認ダイアログとトースト。`vendor/` に自己ホスト
+* **アイコン** … bootstrap-icons から使う13個だけを SVG として埋め込み（フォントは配らない）
+* **Google Fonts** … Zen丸ゴシック（UI用）、Zenオールド明朝（原稿用紙用）。
+  ここだけは CDN のまま。届かなくても字の形が変わるだけで動作に影響しないため
+* **PWA** … Web App Manifest + Service Worker によるインストール・オフライン対応
+
+---
+
+## **🧱 構成 ── 原本と生成物**
+
+**原本（ここを直す）**
+
+| ファイル | 中身 |
+|---|---|
+| `src/app.jsx` | 画面。React コンポーネントと状態 |
+| `src/genko-parser.js` | 原稿用紙の組版（禁則処理）。画面に依らない純粋な計算 |
+| `src/style.css` | Tailwind の指示 + 追加スタイル（印刷・セーフエリア・ふりがな等） |
+| `tailwind.config.js` | 配色とフォントの並び |
+| `tools/build.mjs` | ビルド |
+| `index.html` `sw.js` `install-hook.js` `offline.html` | そのまま配られる |
+
+**生成物（手で編集しない）**
+
+`js/app.js` / `js/icons.js` / `css/style.css` / `vendor/react.js` / `vendor/react-dom.js` / `vendor/sweetalert2.js`
+
+> **原本を直したら、必ず `npm run build` を走らせてから push すること。**
+> GitHub Pages はリポジトリの中身をそのまま配るので、生成物もコミットしてある。
+> ビルドし忘れた PR は CI（`git diff --exit-code`）で落ちる。
+
+```bash
+npm ci
+npm run build      # 生成物を作り直す
+npm run check      # 品質ゲート（CI と同じもの）
+npm test           # 組版ロジックと、ゲート自体の自己テスト
+```
+
+アイコンを作り直すとき（sharp が要る）:
+
+```bash
+npm i --no-save sharp && node tools/make-icons.mjs
+```
+
+実ブラウザで測るとき（playwright-core が要る）:
+
+```bash
+npm i --no-save playwright-core && npm run measure
+```
+
+---
+
+## **📦 ビルドと依存（なぜビルドがあるか）**
+
+以前は `cdn.tailwindcss.com` / `unpkg.com` / `cdn.jsdelivr.net` から
+React・Babel・Tailwind・SweetAlert2・アイコンフォントを読み、
+**ブラウザの中で JSX をコンパイル**していました。
+
+学校のネットワークはこれらの CDN を塞いでいることがあります。
+**1本でも届かないと画面が真っ白になり、原因がアプリの外にあるので先生が調べても分かりません。**
+また `@babel/standalone` だけで約 3.1MB あり、開くたびに全部コンパイルし直していました。
+
+いまは実行コードをすべて自分側に置き、JSX はビルド時に1回だけ変換しています。
+
+| | 前 | 後 |
+|---|---:|---:|
+| 初回に必要な JS | **3,284 KB** | **254 KB** |
+| CDN から取る実行コード | 5本 | **0 バイト** |
+
+---
+
+## **🔒 セキュリティ設計**
+
+* サーバーを持たないため、送信も認証もありません。入力は**その端末の中だけ**に残ります
+  （`localStorage['genko_lite_v2']`）。
+* CSP（Content Security Policy）を `index.html` に入れてあります。
+  実行コードは `'self'` のみ。`script-src` に `'unsafe-inline'` は**付けていません**。
+  そのためインラインの `<script>` と `onclick=` は使えません（使うと動きません）。
+* `frame-ancestors` は `<meta>` では無視されるため書いていません。
+  他サイトへの埋め込みを止めるには HTTP ヘッダーが必要で、GitHub Pages では足せません。
+  独自ドメインや CDN を前に置く場合は、そちらで設定してください。
+* Service Worker は**自分の接頭辞（`genko-lite-`）のキャッシュだけ**を消します。
+  `gigayama.github.io` は多数のアプリが同じオリジンを共有しているため、
+  全部消すと他のアプリがオフラインで起動しなくなります。
+
+---
+
+## **📐 制限**
+
+* 1つの端末・1つのブラウザの中で完結します。端末をまたいだ同期はありません。
+* iOS Safari は、7日間開かないと保存内容を消すことがあります（ITP）。
+  ホーム画面への追加を推奨し、大事な作文はファイルへ書き出してください。
+* 印刷は A4 横・二段組に固定です。
 
 ## **⚠️ 外部サービスとの連携について**
 
