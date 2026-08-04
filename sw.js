@@ -1,47 +1,66 @@
-/* オンライン原稿用紙 Lite - Service Worker */
-/* キャッシュを更新したいときは CACHE_VERSION を上げる */
-const CACHE_VERSION = 'genko-lite-v1';
-const APP_SHELL_CACHE = `${CACHE_VERSION}-shell`;
-const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`;
+/* オンライン原稿用紙 Lite — Service Worker
+ *
+ * 【重要】activate では自アプリ以外のキャッシュを削除しない。
+ *   gigayama.github.io は数十個のアプリが同一オリジンを共有しているため、
+ *   caches.keys() を全部消すと、他のアプリがオフラインで起動しなくなる。
+ *   CACHE_PREFIX で始まるキャッシュだけを掃除する。
+ *
+ * この Service Worker は localStorage を一切操作しない
+ * （そもそも Service Worker からは触れないうえ、児童の書きかけを壊す元になる）。
+ *
+ * 版を上げるときは APP_VERSION を必ず更新する。更新漏れが「直したのに直らない」の原因。
+ */
+const CACHE_PREFIX = 'genko-lite-';
+const APP_VERSION = 'v2';
+const CACHE_STATIC = CACHE_PREFIX + 'static-' + APP_VERSION;
+const CACHE_RUNTIME = CACHE_PREFIX + 'runtime-' + APP_VERSION;
 
-// アプリ本体(同一オリジン)
-const APP_SHELL = [
+// 先読みするのはアプリ本体だけ。校内 Wi-Fi で40人が同時に開くため、
+// 先読みの総量が膨らむと初回表示が止まる。
+const PRECACHE_URLS = [
   './',
   './index.html',
+  './offline.html',
   './manifest.webmanifest',
+  './install-hook.js',
+  './css/style.css',
+  './js/icons.js',
+  './js/app.js',
+  './vendor/react.js',
+  './vendor/react-dom.js',
+  './vendor/sweetalert2.js',
   './favicon.png',
   './icons/icon-192.png',
   './icons/icon-512.png',
+  './icons/maskable-192.png',
   './icons/maskable-512.png',
-];
-
-// オフラインでも動作するようキャッシュを許可するCDNホスト
-const CDN_HOSTS = [
-  'cdn.tailwindcss.com',
-  'cdn.jsdelivr.net',
-  'unpkg.com',
-  'fonts.googleapis.com',
-  'fonts.gstatic.com',
+  './icons/apple-touch-icon.png',
 ];
 
 self.addEventListener('install', (event) => {
-  event.waitUntil(
-    caches.open(APP_SHELL_CACHE)
-      .then((cache) => cache.addAll(APP_SHELL))
-      .then(() => self.skipWaiting())
-  );
+  event.waitUntil((async () => {
+    const cache = await caches.open(CACHE_STATIC);
+    // addAll は1本でも失敗すると全体が落ちる。個別に入れて、
+    // 1ファイル取りこぼしただけでオフライン対応がまるごと無くなる事故を防ぐ。
+    await Promise.all(PRECACHE_URLS.map((url) => cache
+      .add(new Request(url, { cache: 'reload' }))
+      .catch((err) => console.warn('[sw] 先読みできなかった:', url, err))));
+    // ここでは skipWaiting しない。
+    // 児童が作文を打っている最中に中身が入れ替わると、打ちかけの文が消える。
+    // 画面の「さいしんに する」を押してもらってから切り替える。
+  })());
 });
 
 self.addEventListener('activate', (event) => {
-  event.waitUntil(
-    caches.keys()
-      .then((keys) => Promise.all(
-        keys
-          .filter((key) => !key.startsWith(CACHE_VERSION))
-          .map((key) => caches.delete(key))
-      ))
-      .then(() => self.clients.claim())
-  );
+  event.waitUntil((async () => {
+    const keys = await caches.keys();
+    await Promise.all(keys
+      // ⚠️ 自アプリの接頭辞で始まるものだけを消す。
+      //    ここを外すと同じオリジンにある他のアプリのキャッシュまで消える。
+      .filter((key) => key.startsWith(CACHE_PREFIX) && key !== CACHE_STATIC && key !== CACHE_RUNTIME)
+      .map((key) => caches.delete(key)));
+    await self.clients.claim();
+  })());
 });
 
 self.addEventListener('fetch', (event) => {
@@ -50,39 +69,37 @@ self.addEventListener('fetch', (event) => {
 
   const url = new URL(request.url);
 
-  // ページ遷移: ネットワーク優先。オフライン時はキャッシュ済みの index.html を返す
+  // 画面遷移は network-first。更新をすぐ届け、圏外なら手元の控えを出す。
   if (request.mode === 'navigate') {
-    event.respondWith(
-      fetch(request)
-        .then((response) => {
-          const copy = response.clone();
-          caches.open(APP_SHELL_CACHE).then((cache) => cache.put('./index.html', copy));
-          return response;
-        })
-        .catch(() => caches.match('./index.html'))
-    );
+    event.respondWith((async () => {
+      try {
+        const response = await fetch(request);
+        const copy = response.clone();
+        caches.open(CACHE_STATIC).then((cache) => cache.put('./index.html', copy));
+        return response;
+      } catch (err) {
+        return (await caches.match('./index.html'))
+          || (await caches.match('./offline.html'))
+          || Response.error();
+      }
+    })());
     return;
   }
 
-  const isSameOrigin = url.origin === self.location.origin;
-  const isCdn = CDN_HOSTS.includes(url.hostname);
-  if (!isSameOrigin && !isCdn) return;
+  // 同一オリジンの静的ファイルは cache-first（校内Wi-Fiが混んでいても即表示）。
+  // 他オリジン（Google Fonts）は素通しする。届かなくても字の形が変わるだけで動く。
+  if (url.origin !== self.location.origin) return;
 
-  // 静的アセット・CDN: stale-while-revalidate
-  // (即キャッシュから返しつつ、裏で最新を取得して次回に備える)
-  event.respondWith(
-    caches.match(request).then((cached) => {
-      const fetchAndUpdate = fetch(request)
-        .then((response) => {
-          if (response && (response.ok || response.type === 'opaque')) {
-            const copy = response.clone();
-            caches.open(isSameOrigin ? APP_SHELL_CACHE : RUNTIME_CACHE)
-              .then((cache) => cache.put(request, copy));
-          }
-          return response;
-        })
-        .catch(() => cached);
-      return cached || fetchAndUpdate;
-    })
-  );
+  event.respondWith(caches.match(request).then((cached) => cached || fetch(request).then((response) => {
+    if (response && response.ok) {
+      const copy = response.clone();
+      caches.open(CACHE_RUNTIME).then((cache) => cache.put(request, copy));
+    }
+    return response;
+  })));
+});
+
+self.addEventListener('message', (event) => {
+  // 画面側で「さいしんに する」が押されたときだけ切り替える
+  if (event.data && event.data.type === 'SKIP_WAITING') self.skipWaiting();
 });
