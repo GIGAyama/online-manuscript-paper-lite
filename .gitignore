@@ -1,0 +1,10 @@
+node_modules/
+dist/
+.clasp.json
+.env
+.env.*
+.DS_Store
+*.log
+
+# 実測のときだけ手元に入れるもの（CI では使わない）
+/playwright-report/
