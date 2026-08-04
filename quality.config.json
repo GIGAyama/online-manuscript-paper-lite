@@ -1,0 +1,27 @@
+{
+  "basePath": "/online-manuscript-paper-lite/",
+  "appVersion": "v2",
+  "initialJs": [
+    "install-hook.js",
+    "vendor/react.js",
+    "vendor/react-dom.js",
+    "vendor/sweetalert2.js",
+    "js/icons.js",
+    "js/app.js"
+  ],
+  "initialJsLimitBytes": 307200,
+  "buildArtifacts": [
+    "js/app.js",
+    "js/icons.js",
+    "css/style.css",
+    "vendor/react.js",
+    "vendor/react-dom.js",
+    "vendor/sweetalert2.js"
+  ],
+  "imageLimits": {
+    "default": 153600,
+    "icons/icon-512.png": 61440,
+    "icons/maskable-512.png": 61440,
+    "favicon.png": 30720
+  }
+}
