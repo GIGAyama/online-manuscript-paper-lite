@@ -1,6 +1,6 @@
 {
   "basePath": "/online-manuscript-paper-lite/",
-  "appVersion": "v2",
+  "appVersion": "v3",
   "initialJs": [
     "install-hook.js",
     "vendor/react.js",

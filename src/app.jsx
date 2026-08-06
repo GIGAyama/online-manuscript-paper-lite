@@ -16,6 +16,29 @@ const { useState, useEffect, useMemo, useRef, useCallback, useId } = React;
 
 const STORAGE_KEY = 'genko_lite_v2';
 
+/* 書きかけの保存。保存領域がいっぱい／プライベートモードでは setItem が例外を投げる。
+ * 投げっぱなしにすると自動保存のタイマーの中で落ち、以後の保存が止まるので必ず受ける。
+ * （画面の文字は消えないので、児童には何も知らせない。） */
+const saveDoc = (doc, settings) => {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({
+      ...doc,
+      charsPerLine: settings.charsPerLine,
+      kinsokuMode: settings.kinsokuMode,
+    }));
+  } catch (e) { /* 保存できなくても書きかけは画面に残る */ }
+};
+
+/* 小さな通知。Swal.mixin は呼ぶたびに新しい設定を作るので、
+ * 描画のたびに作り直さないよう1つだけ持って使い回す。 */
+let toastInstance = null;
+const toast = (options) => {
+  if (!toastInstance) {
+    toastInstance = Swal.mixin({ toast: true, position: 'top-end', showConfirmButton: false, timer: 3000 });
+  }
+  return toastInstance.fire(options);
+};
+
 // ==========================================
 // 端末まわりの下ごしらえ
 // ==========================================
@@ -221,14 +244,21 @@ const ScalableWrapper = ({ children, scrollContainerRef, onScroll }) => {
       }
     };
 
-    const observer = new ResizeObserver(() => { reqId = requestAnimationFrame(updateScale); });
+    const observer = new ResizeObserver(() => {
+      cancelAnimationFrame(reqId);
+      reqId = requestAnimationFrame(updateScale);
+    });
     if (containerRef.current) observer.observe(containerRef.current);
     if (contentRef.current && contentRef.current.firstElementChild) observer.observe(contentRef.current.firstElementChild);
 
     updateScale();
     const timeoutId = setTimeout(updateScale, 100);
     return () => { observer.disconnect(); cancelAnimationFrame(reqId); clearTimeout(timeoutId); };
-  }, [children]);
+    /* 依存に children を入れない。children は1文字打つたびに新しい要素になるので、
+     * 入れると打つたびに ResizeObserver を捨てて作り直すことになる。
+     * 見張っている DOM の要素そのものは入れ替わらず、行が増えて大きさが変われば
+     * ResizeObserver が呼んでくれるため、これで足りる。 */
+  }, []);
 
   // 縦・横どちらのスクロール操作でも、プレビュー画面を横スクロールさせる
   useEffect(() => {
@@ -497,7 +527,9 @@ const App = () => {
   const [applyUpdate, setApplyUpdate] = useState(null);
 
   const handleChange = (e) => setDoc((prev) => ({ ...prev, [e.target.name]: e.target.value }));
-  const charCount = Array.from(doc.content || '').length;
+  /* 文字数。改行は「文字」ではないので数えない（原稿用紙の 400 字と見比べるため）。
+   * Array.from で数えるのは、絵文字や一部の漢字（𩸽 など）を2文字と数えないため。 */
+  const charCount = useMemo(() => Array.from((doc.content || '').replace(/\n/g, '')).length, [doc.content]);
 
   // スクロール同期用のRefとフラグ
   const textareaRef = useRef(null);
@@ -544,19 +576,28 @@ const App = () => {
     setTimeout(() => { isSyncingRight.current = false; }, 50);
   }, []);
 
-  const Toast = Swal.mixin({ toast: true, position: 'top-end', showConfirmButton: false, timer: 3000 });
-
   // 初期データの復元
   useEffect(() => {
-    const saved = localStorage.getItem(STORAGE_KEY);
+    let saved = null;
+    try { saved = localStorage.getItem(STORAGE_KEY); } catch (e) { /* 記憶領域が使えない端末 */ }
     if (saved) {
       try {
         const data = JSON.parse(saved);
-        setDoc({ title: data.title || '', class: data.class || '', name: data.name || '', content: data.content || '' });
-        if (data.charsPerLine) {
-          setSettings({ charsPerLine: data.charsPerLine, kinsokuMode: data.kinsokuMode || 'burasagari' });
+        const restored = {
+          title: data.title || '', class: data.class || '', name: data.name || '', content: data.content || '',
+        };
+        setDoc(restored);
+        // 20/15 以外は受け取らない（壊れた記録で用紙が消えないように）
+        setSettings({
+          charsPerLine: data.charsPerLine === 15 ? 15 : 20,
+          kinsokuMode: data.kinsokuMode === 'oidashi' ? 'oidashi' : 'burasagari',
+        });
+        /* 「前回の続き」は中身があるときだけ知らせる。
+         * 新規のあとは空の記録が残るので、無条件に出すと
+         * 何も書いていないのに「続きから始めます」と出て混乱する。 */
+        if (Object.values(restored).some((v) => v !== '')) {
+          toast({ icon: 'info', html: '<span class="font-bold">前回の続きから始めます</span>' });
         }
-        Toast.fire({ icon: 'info', html: '<span class="font-bold">前回の続きから始めます</span>' });
       } catch (e) { console.error('Restore error', e); }
     }
     setIsInitialLoad(false);
@@ -565,9 +606,7 @@ const App = () => {
   // 自動保存 (入力から1秒後)
   useEffect(() => {
     if (isInitialLoad) return undefined;
-    const timer = setTimeout(() => {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...doc, charsPerLine: settings.charsPerLine, kinsokuMode: settings.kinsokuMode }));
-    }, 1000);
+    const timer = setTimeout(() => saveDoc(doc, settings), 1000);
     return () => clearTimeout(timer);
   }, [doc, settings, isInitialLoad]);
 
@@ -577,9 +616,7 @@ const App = () => {
   useEffect(() => {
     const flush = () => {
       const { doc: d, settings: s } = latest.current;
-      try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...d, charsPerLine: s.charsPerLine, kinsokuMode: s.kinsokuMode }));
-      } catch (e) { /* 保存領域がいっぱいのときは黙って諦める（書きかけは画面に残る） */ }
+      saveDoc(d, s);
     };
     window.addEventListener('pagehide', flush);
     return () => window.removeEventListener('pagehide', flush);
@@ -590,7 +627,7 @@ const App = () => {
     const onInstallable = () => setCanInstall(true);
     const onInstalled = () => {
       setCanInstall(false);
-      Toast.fire({ icon: 'success', html: '<span class="font-bold">アプリをインストールしました</span>' });
+      toast({ icon: 'success', html: '<span class="font-bold">アプリをインストールしました</span>' });
     };
     window.addEventListener('pwa-install-available', onInstallable);
     window.addEventListener('pwa-installed', onInstalled);
@@ -631,7 +668,7 @@ const App = () => {
     }).then((result) => {
       if (result.isConfirmed) {
         setDoc({ title: '', class: '', name: '', content: '' });
-        Toast.fire({ icon: 'success', title: '新しく始めました' });
+        toast({ icon: 'success', title: '新しく始めました' });
       }
     });
   };
@@ -642,16 +679,30 @@ const App = () => {
       return;
     }
     const textContent = `【題名】${doc.title}\n【学年】${doc.class}\n【氏名】${doc.name}\n---------------------------\n${doc.content}`;
-    const blob = new Blob([textContent], { type: 'text/plain' });
+    // charset を書いておかないと、端末によっては開いたときに文字化けする
+    const blob = new Blob([textContent], { type: 'text/plain;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
-    let filename = `${doc.title}_${doc.name}`.replace(/[/\\:*?"<>|]/g, '');
-    if (filename === '_') filename = `作文_${new Date().toLocaleDateString().replace(/\//g, '-')}`;
+
+    /* ファイル名。使えない記号のほかに改行とタブも落とす（題名に改行が入りうる）。
+     * 記号を落とした結果が「_」だけになる場合も拾う（以前は完全一致だけを見ていたので、
+     * 題名が「?」だけのようなときに「_.txt」という名前で保存されていた）。 */
+    let filename = `${doc.title}_${doc.name}`.replace(/[/\\:*?"<>|\r\n\t]/g, '').trim();
+    if (!filename.replace(/[_\s.]/g, '')) {
+      const d = new Date();
+      const pad = (n) => String(n).padStart(2, '0');
+      filename = `作文_${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+    }
 
     a.href = url;
     a.download = `${filename}.txt`;
+    // DOM に無い <a> のクリックを無視するブラウザがあるため、一度置いてから押す
+    a.style.display = 'none';
+    document.body.appendChild(a);
     a.click();
-    URL.revokeObjectURL(url);
+    /* すぐ片付けると、保存が始まる前に中身が消えて 0 バイトのファイルになる端末がある。
+     * <a> の取り外しも同じ理由で待つ。 */
+    setTimeout(() => { a.remove(); URL.revokeObjectURL(url); }, 1000);
   };
 
   const handleLoad = () => {
@@ -662,13 +713,19 @@ const App = () => {
       const file = e.target.files[0];
       if (!file) return;
       const reader = new FileReader();
+      reader.onerror = () => {
+        Swal.fire({ icon: 'error', title: 'よみこめませんでした', text: 'もういちど ためして ください。' });
+      };
       reader.onload = (event) => {
-        const text = event.target.result;
+        /* Windows のメモ帳で開いて保存し直すと改行が CRLF になる。
+         * そのままだと題名の行が見つからず、全部が本文に流れ込むうえ、
+         * 残った \r が原稿用紙の1マスを占めてしまう。先に LF へ揃える。 */
+        const text = String(event.target.result || '').replace(/\r\n?/g, '\n');
         const headerRegex = /【題名】(.*)\n【学年】(.*)\n【氏名】(.*)\n-{10,}\n([\s\S]*)/;
         const match = text.match(headerRegex);
         if (match) {
           setDoc({ title: match[1].trim(), class: match[2].trim(), name: match[3].trim(), content: match[4].trim() });
-          Toast.fire({ icon: 'success', title: '読み込みました' });
+          toast({ icon: 'success', title: '読み込みました' });
         } else {
           Swal.fire({
             title: '確認',
@@ -680,7 +737,7 @@ const App = () => {
           }).then((result) => {
             if (result.isConfirmed) {
               setDoc((prev) => ({ ...prev, content: text }));
-              Toast.fire({ icon: 'success', title: '読み込みました' });
+              toast({ icon: 'success', title: '読み込みました' });
             }
           });
         }
@@ -746,19 +803,15 @@ const App = () => {
           </div>
 
           <div className="flex-1 relative bg-amber-50/30 min-h-[120px] md:min-h-[30vh]">
+            {/* 罫線・行の高さ・内側余白は .manuscript-editor に集めてある（src/style.css）。
+                ここで p-4 や leading-* を足すと、罫線と文字がまたずれる。 */}
             <textarea
               ref={textareaRef}
               onScroll={handleTextareaScroll}
               name="content" value={doc.content} onChange={handleChange}
               placeholder="ここをクリックして、さくぶんをかいてください..."
               aria-label="ほんぶん"
-              className="w-full h-full resize-none border-none p-4 md:p-6 text-[length:var(--fs-editor)] focus:outline-none focus:bg-amber-50/60 text-slate-800 leading-[2.5rem] bg-transparent hide-scrollbar scroll-area transition-colors"
-              style={{
-                backgroundImage: 'linear-gradient(to bottom, transparent calc(100% - 1px), #cbd5e1 calc(100% - 1px))',
-                backgroundSize: '100% 2.5rem',
-                backgroundPosition: '0 1.5rem',
-                backgroundAttachment: 'local',
-              }}
+              className="manuscript-editor w-full h-full resize-none border-none focus:outline-none focus:bg-amber-50/60 text-slate-800 bg-transparent hide-scrollbar scroll-area transition-colors"
             />
             {/* 1文字ごとに読み上げられると邪魔になるので、ここは live 領域にしない */}
             <div className="absolute bottom-4 right-4 bg-white px-4 py-1.5 rounded-full shadow-sm border border-slate-200 text-sm font-bold text-amber-700 pointer-events-none">
@@ -814,17 +867,18 @@ const App = () => {
           {/* 用紙の文字数 */}
           <div>
             <h3 className="font-bold text-slate-800 text-[1.1rem] mb-4"><Rb t="用紙" r="ようし" />の<Rb t="文字数" r="もじすう" /></h3>
-            <div className="space-y-5 pl-2">
+            {/* 読み上げでも「2つのうちの1つ」と分かるように束ねる */}
+            <div className="space-y-5 pl-2" role="radiogroup" aria-label="用紙の文字数">
               <label className="flex items-center gap-4 cursor-pointer group min-h-[44px]">
                 <span className="relative flex items-center justify-center shrink-0">
-                  <input type="radio" name="chars" checked={settings.charsPerLine === 20} onChange={() => setSettings({ ...settings, charsPerLine: 20 })} className="peer appearance-none w-[22px] h-[22px] border-[2.5px] border-slate-300 rounded-full checked:border-teal-700 transition-all cursor-pointer bg-white" />
+                  <input type="radio" name="chars" checked={settings.charsPerLine === 20} onChange={() => setSettings((prev) => ({ ...prev, charsPerLine: 20 }))} className="peer appearance-none w-[22px] h-[22px] border-[2.5px] border-slate-300 rounded-full checked:border-teal-700 transition-all cursor-pointer bg-white" />
                   <span className="absolute w-[10px] h-[10px] bg-teal-700 rounded-full opacity-0 peer-checked:opacity-100 transition-all pointer-events-none"></span>
                 </span>
                 <span className="font-bold text-slate-800 text-[1.1rem]">20<Rb t="文字" r="もじ" /> × 20<Rb t="行" r="ぎょう" /> (<Rb t="高学年" r="こうがくねん" />)</span>
               </label>
               <label className="flex items-center gap-4 cursor-pointer group min-h-[44px]">
                 <span className="relative flex items-center justify-center shrink-0">
-                  <input type="radio" name="chars" checked={settings.charsPerLine === 15} onChange={() => setSettings({ ...settings, charsPerLine: 15 })} className="peer appearance-none w-[22px] h-[22px] border-[2.5px] border-slate-300 rounded-full checked:border-teal-700 transition-all cursor-pointer bg-white" />
+                  <input type="radio" name="chars" checked={settings.charsPerLine === 15} onChange={() => setSettings((prev) => ({ ...prev, charsPerLine: 15 }))} className="peer appearance-none w-[22px] h-[22px] border-[2.5px] border-slate-300 rounded-full checked:border-teal-700 transition-all cursor-pointer bg-white" />
                   <span className="absolute w-[10px] h-[10px] bg-teal-700 rounded-full opacity-0 peer-checked:opacity-100 transition-all pointer-events-none"></span>
                 </span>
                 <span className="font-bold text-slate-800 text-[1.1rem]">15<Rb t="文字" r="もじ" /> × 16<Rb t="行" r="ぎょう" /> (<Rb t="低学年" r="ていがくねん" />)</span>
@@ -835,10 +889,10 @@ const App = () => {
           {/* 禁則処理 */}
           <div>
             <h3 className="font-bold text-slate-800 text-[1.1rem] mb-4"><Rb t="禁則処理" r="きんそくしょり" /></h3>
-            <div className="space-y-5 pl-2">
+            <div className="space-y-5 pl-2" role="radiogroup" aria-label="禁則処理">
               <label className="flex items-center gap-4 cursor-pointer group min-h-[44px]">
                 <span className="relative flex items-center justify-center shrink-0">
-                  <input type="radio" name="kinsoku" checked={settings.kinsokuMode === 'oidashi'} onChange={() => setSettings({ ...settings, kinsokuMode: 'oidashi' })} className="peer appearance-none w-[22px] h-[22px] border-[2.5px] border-slate-300 rounded-full checked:border-teal-700 transition-all cursor-pointer bg-white" />
+                  <input type="radio" name="kinsoku" checked={settings.kinsokuMode === 'oidashi'} onChange={() => setSettings((prev) => ({ ...prev, kinsokuMode: 'oidashi' }))} className="peer appearance-none w-[22px] h-[22px] border-[2.5px] border-slate-300 rounded-full checked:border-teal-700 transition-all cursor-pointer bg-white" />
                   <span className="absolute w-[10px] h-[10px] bg-teal-700 rounded-full opacity-0 peer-checked:opacity-100 transition-all pointer-events-none"></span>
                 </span>
                 <span className="font-bold text-slate-800 text-[1.1rem] leading-relaxed">
@@ -847,7 +901,7 @@ const App = () => {
               </label>
               <label className="flex items-center gap-4 cursor-pointer group min-h-[44px]">
                 <span className="relative flex items-center justify-center shrink-0">
-                  <input type="radio" name="kinsoku" checked={settings.kinsokuMode === 'burasagari'} onChange={() => setSettings({ ...settings, kinsokuMode: 'burasagari' })} className="peer appearance-none w-[22px] h-[22px] border-[2.5px] border-slate-300 rounded-full checked:border-teal-700 transition-all cursor-pointer bg-white" />
+                  <input type="radio" name="kinsoku" checked={settings.kinsokuMode === 'burasagari'} onChange={() => setSettings((prev) => ({ ...prev, kinsokuMode: 'burasagari' }))} className="peer appearance-none w-[22px] h-[22px] border-[2.5px] border-slate-300 rounded-full checked:border-teal-700 transition-all cursor-pointer bg-white" />
                   <span className="absolute w-[10px] h-[10px] bg-teal-700 rounded-full opacity-0 peer-checked:opacity-100 transition-all pointer-events-none"></span>
                 </span>
                 <span className="font-bold text-slate-800 text-[1.1rem] leading-relaxed">

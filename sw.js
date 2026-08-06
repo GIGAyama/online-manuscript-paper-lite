@@ -11,7 +11,7 @@
  * 版を上げるときは APP_VERSION を必ず更新する。更新漏れが「直したのに直らない」の原因。
  */
 const CACHE_PREFIX = 'genko-lite-';
-const APP_VERSION = 'v2';
+const APP_VERSION = 'v3';
 const CACHE_STATIC = CACHE_PREFIX + 'static-' + APP_VERSION;
 const CACHE_RUNTIME = CACHE_PREFIX + 'runtime-' + APP_VERSION;
 
@@ -74,8 +74,13 @@ self.addEventListener('fetch', (event) => {
     event.respondWith((async () => {
       try {
         const response = await fetch(request);
-        const copy = response.clone();
-        caches.open(CACHE_STATIC).then((cache) => cache.put('./index.html', copy));
+        // ⚠️ 200 以外を控えにしない。学校のフィルタリングが返すブロック画面や
+        //    404 をそのまま控えにすると、以後オフラインのたびにそれが出る。
+        if (response && response.ok && response.type === 'basic') {
+          const copy = response.clone();
+          // respondWith が終わると clone の中身が捨てられることがあるので待たせる
+          event.waitUntil(caches.open(CACHE_STATIC).then((cache) => cache.put('./index.html', copy)));
+        }
         return response;
       } catch (err) {
         return (await caches.match('./index.html'))
@@ -91,9 +96,9 @@ self.addEventListener('fetch', (event) => {
   if (url.origin !== self.location.origin) return;
 
   event.respondWith(caches.match(request).then((cached) => cached || fetch(request).then((response) => {
-    if (response && response.ok) {
+    if (response && response.ok && response.type === 'basic') {
       const copy = response.clone();
-      caches.open(CACHE_RUNTIME).then((cache) => cache.put(request, copy));
+      event.waitUntil(caches.open(CACHE_RUNTIME).then((cache) => cache.put(request, copy)));
     }
     return response;
   })));
