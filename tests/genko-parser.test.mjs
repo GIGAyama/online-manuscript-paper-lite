@@ -42,6 +42,20 @@ test('ぶら下がり：行末を越えた句点はマスの外に付く', () =>
   assert.equal(lines[2].join(''), 'つづき');
 });
 
+test('ぶら下がりは2マスまで。それ以上は次の行の頭に置く（用紙からはみ出さない）', () => {
+  const content = `${'あ'.repeat(20)}！！！！`;
+  const lines = parseGenko({ ...empty, content }, S20);
+  assert.equal(lines[1].length, 22, '20マス＋ぶら下がり2文字が上限');
+  assert.equal(lines[2].join(''), '！！', 'あふれた分は次の行へ');
+});
+
+test('CRLF の文章でも、見えないマスが増えない', () => {
+  const lines = parseGenko({ ...empty, title: 'あき', content: 'いち\r\nに' }, S20);
+  assert.equal(lines[1].join(''), 'いち');
+  assert.equal(lines[2].join(''), 'に');
+  assert.ok(!lines.some((line) => line.includes('\r')), '\\r がマスに入っている');
+});
+
 test('追い出し：行頭に来られない文字が続くと、前の行の最後を送る', () => {
   const content = `${'あ'.repeat(20)}。つづき`;
   const lines = parseGenko({ ...empty, content }, S20o);

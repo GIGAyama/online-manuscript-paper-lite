@@ -109,6 +109,42 @@ textarea::placeholder { color: #475569; opacity: 1; }
 input::-webkit-input-placeholder,
 textarea::-webkit-input-placeholder { color: #475569; }
 
+/* ---- 作文を打つ欄の罫線 --------------------------------------------------
+ * 罫線は「文字の大きさ」から作る。
+ *
+ * ⚠️ 以前は行の高さも罫線の間隔も 2.5rem 固定で、文字の大きさだけが
+ *    clamp() で 16〜20px と変わっていた。行と罫線の間隔は揃っていても、
+ *    罫線の描き始め（1.5rem）が PC の内側余白（md:p-6 = 1.5rem）に
+ *    合わせた値だったため、内側余白が 1rem のスマホ・タブレットでは
+ *    8px ずつずれ、罫線が文字の上を横切っていた。
+ *
+ * だから全部を1か所から出す。font-size は var(--fs-editor)、
+ * 行の高さ・罫線の間隔は 2em（＝文字の2倍）、描き始めは内側余白そのもの。
+ * 内側余白が変わっても、文字が大きくなっても、ずれようがない形にする。
+ *
+ * 0.15em 持ち上げているのは、行のちょうど真ん中に線が来ると、
+ * どちらの行の線なのか分からず「浮いて」見えるため。線は文字のすぐ下に来る。
+ * これ以上持ち上げないのは、日本語フォントの上下の余白（ascent/descent）が
+ * 1em を大きく超えるものがあり（Zen Maru Gothic はおよそ 1.45em）、
+ * 深く持ち上げると、そういうフォントが当たった端末で線が文字に触れるため。 */
+.manuscript-editor {
+  --editor-pad: 1rem;                    /* スマホ・タブレット（p-4 相当） */
+  font-size: var(--fs-editor);
+  line-height: 2em;
+  padding: var(--editor-pad);
+  /* 右下の文字数表示が最後の行に重ならないよう、下だけ広く空ける */
+  padding-bottom: calc(var(--editor-pad) + 2.25rem);
+  background-image: linear-gradient(to bottom, transparent calc(100% - 1px), #cbd5e1 calc(100% - 1px));
+  background-size: 100% 2em;
+  background-position: 0 calc(var(--editor-pad) - 0.15em);
+  background-repeat: repeat;
+  /* 罫線が文章と一緒に動く。fixed だと紙だけ止まって文字が滑る */
+  background-attachment: local;
+}
+@media (min-width: 768px) {
+  .manuscript-editor { --editor-pad: 1.5rem; }  /* PC（md:p-6 相当） */
+}
+
 /* ---- スクロールバー ------------------------------------------------------ */
 .hide-scrollbar::-webkit-scrollbar { display: none; }
 .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }

@@ -158,7 +158,8 @@ const breakages = [
   {
     id: 'PWA_SW_VERSION_BUMPED',
     how: 'APP_VERSION を上げ忘れる',
-    overrides: { patched: { 'sw.js': read('sw.js').replace("const APP_VERSION = 'v2'", "const APP_VERSION = 'v1'") } },
+    // 版は上がっていくので、決め打ちにせず「今の版を古い値に戻す」形で壊す
+    overrides: { patched: { 'sw.js': read('sw.js').replace(/const APP_VERSION = '[^']*'/, "const APP_VERSION = 'v0'") } },
   },
   {
     id: 'PWA_SW_REGISTER_READYSTATE',
