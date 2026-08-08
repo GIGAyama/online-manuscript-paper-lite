@@ -99,7 +99,9 @@ const walk = (dir) => {
     if (e.name === 'node_modules' || e.name.startsWith('.')) continue;
     const rel = `${dir}/${e.name}`.replace(/^\.\//, '');
     if (e.isDirectory()) walk(rel);
-    else if (/\.(js|css|png|html|webmanifest|woff2)$/.test(e.name) && !/^(src|tools|scripts|tests)\//.test(rel)) {
+    // docs/ は記事や説明のための置き場で、アプリが読み込むものではない。
+    // ここを数えると、note の記事に貼る画面写真が予算を食いつぶす。
+    else if (/\.(js|css|png|html|webmanifest|woff2)$/.test(e.name) && !/^(src|tools|scripts|tests|docs)\//.test(rel)) {
       assets.push([rel, statSync(p(rel)).size]);
     }
   }

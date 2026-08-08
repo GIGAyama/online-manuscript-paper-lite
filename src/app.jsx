@@ -724,7 +724,10 @@ const App = () => {
         const headerRegex = /【題名】(.*)\n【学年】(.*)\n【氏名】(.*)\n-{10,}\n([\s\S]*)/;
         const match = text.match(headerRegex);
         if (match) {
-          setDoc({ title: match[1].trim(), class: match[2].trim(), name: match[3].trim(), content: match[4].trim() });
+          /* 本文の先頭は落とさない。trim() だと段落のはじめの全角スペース（字下げの1マス）
+           * まで消えてしまい、保存したものを開き直すたびに原稿用紙の形が変わる。
+           * 用紙の終わりに空のマスが並ばないよう、末尾の空白だけを落とす。 */
+          setDoc({ title: match[1].trim(), class: match[2].trim(), name: match[3].trim(), content: match[4].replace(/\s+$/, '') });
           toast({ icon: 'success', title: '読み込みました' });
         } else {
           Swal.fire({
@@ -733,6 +736,9 @@ const App = () => {
             icon: 'question',
             showCancelButton: true,
             confirmButtonText: '読み込む',
+            // 既定のままだと取り消しのボタンだけ「Cancel」と英語で出る。
+            // ふりがなを振ってある画面に英語が1つ混じると、そこで読めなくなる子がいる。
+            cancelButtonText: 'いいえ',
             confirmButtonColor: '#b45309',
           }).then((result) => {
             if (result.isConfirmed) {
