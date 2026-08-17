@@ -171,7 +171,7 @@ export const gigaV5Checks = [
   // ── PWA ────────────────────────────────────────────────────────────
   {
     id: 'PWA_MANIFEST_IDENTITY',
-    title: 'manifest の id / scope / start_url がリポジトリ名の絶対パス',
+    title: 'manifest の id / scope / start_url が配信場所と合っている',
     run: (ctx) => {
       const src = ctx.read('manifest.webmanifest');
       if (!src) return ng('manifest.webmanifest が無い');

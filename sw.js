@@ -11,7 +11,7 @@
  * 版を上げるときは APP_VERSION を必ず更新する。更新漏れが「直したのに直らない」の原因。
  */
 const CACHE_PREFIX = 'genko-lite-';
-const APP_VERSION = 'v3';
+const APP_VERSION = 'v4';
 const CACHE_STATIC = CACHE_PREFIX + 'static-' + APP_VERSION;
 const CACHE_RUNTIME = CACHE_PREFIX + 'runtime-' + APP_VERSION;
 

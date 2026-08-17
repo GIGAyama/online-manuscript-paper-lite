@@ -5,9 +5,9 @@
   "lang": "ja",
   "dir": "ltr",
 
-  "id": "/online-manuscript-paper-lite/",
-  "start_url": "/online-manuscript-paper-lite/",
-  "scope": "/online-manuscript-paper-lite/",
+  "id": "./",
+  "start_url": "./",
+  "scope": "./",
 
   "display": "standalone",
   "display_override": ["standalone", "fullscreen", "minimal-ui"],

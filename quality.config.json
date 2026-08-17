@@ -1,6 +1,7 @@
 {
-  "basePath": "/online-manuscript-paper-lite/",
-  "appVersion": "v3",
+  "_basePath": "manifest の id / scope / start_url に期待する値。独自ドメイン（CNAME あり）ではアプリはサブドメイン直下で配信されるので相対パス \"./\"。リポジトリ名の絶対パスに戻すと scope がページの URL を含まなくなり、PWA としてインストールできなくなる。",
+  "basePath": "./",
+  "appVersion": "v4",
   "initialJs": [
     "install-hook.js",
     "vendor/react.js",
