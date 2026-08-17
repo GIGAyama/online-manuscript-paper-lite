@@ -120,8 +120,10 @@ const breakages = [
   },
   {
     id: 'PWA_MANIFEST_IDENTITY',
-    how: 'start_url を "./" に戻す',
-    overrides: { patched: { 'manifest.webmanifest': read('manifest.webmanifest').replace('"start_url": "/online-manuscript-paper-lite/"', '"start_url": "./"') } },
+    // "./" は独自ドメインでもサブディレクトリ配信でも自分のアプリを指すので、もう壊れた形ではない。
+    // いまの壊れ方は、サブドメイン直下で配信するのにリポジトリ名の絶対パスが残っていること。
+    how: 'start_url をリポジトリ名の絶対パスに戻す',
+    overrides: { patched: { 'manifest.webmanifest': read('manifest.webmanifest').replace('"start_url": "./"', '"start_url": "/online-manuscript-paper-lite/"') } },
   },
   {
     id: 'PWA_ICONS',
