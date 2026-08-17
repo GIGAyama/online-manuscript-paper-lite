@@ -1,9 +1,19 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="ja">
 
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <!-- 法的ページは静的な文書だけで、実行するコードを持たない。
+       いちばん狭い CSP を当てて、万一の混入でもスクリプトが動かないようにする。 -->
+  <meta http-equiv="Content-Security-Policy" content="
+    default-src 'none';
+    script-src 'none';
+    style-src 'unsafe-inline';
+    img-src 'self' data:;
+    base-uri 'none';
+    form-action 'none';
+  ">
   <title>プライバシーポリシー｜online-manuscript-paper-lite</title>
   <meta name="description" content="online-manuscript-paper-lite のプライバシーポリシーです。取得する情報、利用目的、保存場所、第三者提供について説明しています。">
   <meta name="theme-color" content="#124a94">
