@@ -7,7 +7,7 @@
 
 1. **連載番号**。見出しの `#◯` を実際の番号に置きかえてください。
    前回の番号が分からなかったので埋めていません。ここだけは推測で入れないようにしました。
-2. **公開アドレス**。本文に `https://gigayama.github.io/online-manuscript-paper-lite/` と書きました。
+2. **公開アドレス**。本文に `https://online-manuscript-paper-lite.giga-school.com/` と書きました。
    `manifest.webmanifest` と `quality.config.json` のパスから組んだもので、作業環境から
    本番へ出られないため実際に開いて確かめてはいません。1回だけ開いて確かめてください。
 3. **公開の前に、下の「撮影中に見つけた不具合」の修正を反映してください。**

@@ -271,7 +271,7 @@ React・Babel・Tailwind・SweetAlert2・アイコンフォントを読み、
   他サイトへの埋め込みを止めるには HTTP ヘッダーが必要で、GitHub Pages では足せません。
   独自ドメインや CDN を前に置く場合は、そちらで設定してください。
 * Service Worker は**自分の接頭辞（`genko-lite-`）のキャッシュだけ**を消します。
-  `gigayama.github.io` は多数のアプリが同じオリジンを共有しているため、
+  旧配信元の `gigayama.github.io` は多数のアプリが同じオリジンを共有していた。同居する配置に戻したときのため、
   全部消すと他のアプリがオフラインで起動しなくなります。
   同じ理由で `localStorage.clear()` も使いません。
 * Service Worker は画面遷移を network-first、その他の同一オリジンの静的ファイルを cache-first で扱います。
