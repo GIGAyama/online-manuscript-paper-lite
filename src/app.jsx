@@ -861,7 +861,7 @@ const App = () => {
       {/* フッター */}
       <footer className="flex-shrink-0 w-full bg-white border-t border-slate-200 pt-1.5 pb-1 md:pt-3 md:pb-2 text-center text-[10px] md:text-sm text-slate-600 font-bold no-print z-40 shadow-sm relative safe-bottom">
         &copy; 2026 オンライン原稿用紙 Lite.{' '}
-        <a href="https://note.com/cute_borage86" target="_blank" rel="noopener noreferrer" className="tap-44 inline-block text-inherit no-underline hover:opacity-80 transition-opacity">GIGA山</a>
+        <a href="https://giga-school.com" target="_blank" rel="noopener noreferrer" className="tap-44 inline-block text-inherit no-underline hover:opacity-80 transition-opacity">GIGA山</a>
       </footer>
 
       {/* 印刷用DOM */}
