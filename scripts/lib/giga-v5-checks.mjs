@@ -105,6 +105,17 @@ const listFiles = (root, dir, ext) => {
 };
 const jsFiles = (root, cfg) => cfg.jsDirs.flatMap((d) => listFiles(root, d, '.js'));
 const cssFiles = (root, cfg) => cfg.cssDirs.flatMap((d) => listFiles(root, d, '.css'));
+// CSS の中身の一覧。単一 HTML 型のアプリはスタイルを <style> に書くので、
+// .css ファイルに加えて htmlFiles の <style> ブロックも数える
+const cssSources = (root, cfg) => [
+  ...cssFiles(root, cfg).map((rel) => ({ rel, css: read(root, rel) || '' })),
+  ...cfg.htmlFiles.flatMap((rel) => {
+    const s = read(root, rel);
+    if (!s) return [];
+    const blocks = [...s.matchAll(/<style[^>]*>([\s\S]*?)<\/style>/gi)].map((m) => m[1]);
+    return blocks.length ? [{ rel: `${rel} の <style>`, css: blocks.join('\n') }] : [];
+  }),
+];
 const swSourceOf = (cfg) => cfg.swSource || (cfg.sw === 'vite' ? 'public/sw.js' : 'sw.js');
 
 /**
@@ -169,9 +180,23 @@ export const CHECKS = [
         const s = read(root, rel);
         if (!s) continue;
         const code = stripComments(s).replace(/<!--[\s\S]*?-->/g, ' ');
-        for (const m of code.matchAll(/(?:src|href)\s*=\s*["'](https?:\/\/[^"']+)["']/gi)) {
-          if (allowed.some((re) => re.test(m[1]))) continue;
-          bad.push(`${rel}: ${m[1]} を読んでいます`);
+        // 見るのは「読み込む」要素だけ。<a href> は行き先のリンクであって
+        // 資産の取得ではない（フッターの giga-school.com へのリンクを
+        // 誤検知した）。preconnect も取得ではないが、宛先の申告なので
+        // stylesheet 等と同じ扱いで許可リストに載せてもらう。
+        const loaders = [
+          /<script[^>]*\ssrc\s*=\s*["'](https?:\/\/[^"']+)["']/gi,
+          /<link[^>]*\shref\s*=\s*["'](https?:\/\/[^"']+)["'][^>]*>/gi,
+          /<iframe[^>]*\ssrc\s*=\s*["'](https?:\/\/[^"']+)["']/gi,
+          // JS からの動的な読み込み
+          /importScripts\(\s*["'](https?:\/\/[^"']+)["']/g,
+          /\.src\s*=\s*["'](https?:\/\/[^"']+)["']/g,
+        ];
+        for (const re of loaders) {
+          for (const m of code.matchAll(re)) {
+            if (allowed.some((a) => a.test(m[1]))) continue;
+            bad.push(`${rel}: ${m[1]} を読んでいます`);
+          }
         }
         if (/babel\/standalone|cdn\.tailwindcss\.com/.test(code)) bad.push(`${rel}: ブラウザの中でコンパイルしています`);
       }
@@ -315,8 +340,8 @@ export const CHECKS = [
     id: 'D_SAFE_AREA',
     title: 'safe-area-inset をつかっている',
     run: (root, cfg) => {
-      const n = cssFiles(root, cfg)
-        .reduce((a, rel) => a + (read(root, rel).match(/env\(\s*safe-area-inset/g) || []).length, 0);
+      const n = cssSources(root, cfg)
+        .reduce((a, { css }) => a + (css.match(/env\(\s*safe-area-inset/g) || []).length, 0);
       return { ok: n > 0, detail: ['ノッチ・ホームバーのぶんを足していません'] };
     },
   },
@@ -324,8 +349,8 @@ export const CHECKS = [
     id: 'D_FLUID_TYPE',
     title: 'clamp() で文字の大きさを決めている',
     run: (root, cfg) => {
-      const n = cssFiles(root, cfg)
-        .reduce((a, rel) => a + (read(root, rel).match(/clamp\(/g) || []).length, 0);
+      const n = cssSources(root, cfg)
+        .reduce((a, { css }) => a + (css.match(/clamp\(/g) || []).length, 0);
       return { ok: n >= cfg.fluidTypeMin, detail: [`clamp() が ${n} か所しかありません（目安 ${cfg.fluidTypeMin}）`] };
     },
   },
@@ -343,7 +368,7 @@ export const CHECKS = [
     id: 'D_REDUCED_MOTION',
     title: 'prefers-reduced-motion に対応し、0 ではなく .01ms 以下の実数',
     run: (root, cfg) => {
-      const css = cssFiles(root, cfg).map((rel) => read(root, rel)).join('\n');
+      const css = cssSources(root, cfg).map((x) => x.css).join('\n');
       if (!/prefers-reduced-motion/.test(css)) return { ok: false, detail: ['対応していません'] };
       const bad = [];
       // 0 にすると animation-fill-mode: forwards が効かず、中身が消える
@@ -356,7 +381,7 @@ export const CHECKS = [
     id: 'D_FORCED_COLORS',
     title: 'forced-colors（ハイコントラスト）に対応している',
     run: (root, cfg) => {
-      const css = cssFiles(root, cfg).map((rel) => read(root, rel)).join('\n');
+      const css = cssSources(root, cfg).map((x) => x.css).join('\n');
       return { ok: /forced-colors\s*:\s*active/.test(css), detail: ['地の色が無効にされると、押せることが分からなくなります'] };
     },
   },
@@ -365,8 +390,8 @@ export const CHECKS = [
     title: 'ふりがな（rt）の色を決め打ちしていない',
     run: (root, cfg) => {
       const bad = [];
-      for (const rel of cssFiles(root, cfg)) {
-        const css = read(root, rel).replace(/\/\*[\s\S]*?\*\//g, '');
+      for (const { rel, css: rawCss } of cssSources(root, cfg)) {
+        const css = rawCss.replace(/\/\*[\s\S]*?\*\//g, '');
         for (const m of css.matchAll(/(^|[},])\s*rt\s*\{([^}]*)\}/g)) {
           const body = m[2];
           if (/color\s*:/.test(body) && !/color\s*:\s*inherit/.test(body)) {
