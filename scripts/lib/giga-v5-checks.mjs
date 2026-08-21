@@ -1,392 +1,886 @@
-/* GIGA Standard v5 Part I の検査。
+/**
+ * =====================================================================
+ * 【正本】standards/lib/giga-v5-checks.mjs — GIGA Standard v5 / Part I の検査
+ * =====================================================================
  *
- * ここは「読めば分かること」だけを見る。読んでも分からないこと
- * （実際に登録されたか／初回にリロードしないか／色が本当に読めるか）は
- * tools/measure/measure.mjs で実ブラウザから測る。両方が要る。
+ * 各リポジトリへは scripts/lib/giga-v5-checks.mjs としてコピーする（中身は変えない）。
+ * リポジトリ固有の値は quality.config.json に置き、呼び出し側（check-project.mjs）が
+ * runGigaChecks(root, config) に渡す。アプリ固有の検査はこのファイルに書かず、
+ * 各リポジトリの tools/ に置く。
  *
- * ⚠️ 検査を書いたら必ず「わざと壊して落ちること」を確かめる。
- *    0件でしたと出ているだけでは、検査が動いているのか何も見ていないのか区別できない。
- *    tests/quality-gate.test.mjs がそれをやっている。
+ * ■ 検査を書くときの決まりごと（実際に踏んだ穴）
+ *
+ *   1. 「消す式」を正規表現で追わない。
+ *      caches.keys() の全削除をさがすとき、`caches.delete(k)` の形を追うと
+ *      `(k) => caches.delete(k)` のような書き方を見のがす。
+ *      見るべきは **`startsWith` でしぼっている式があるか**。
+ *
+ *   2. 判定の前にコメントを落とす。
+ *      「localStorage はさわりません」という**注意書き**に反応して誤検知する。
+ *
+ *   3. 前方も見る。
+ *      `@supports not (height: 100dvh) { … 100vh … }` は正しいフォールバック。
+ *      100vh を見つけただけで落としてはいけない。
+ *
+ *   4. 引用符は ' と " の両方を受ける。
+ *      addEventListener("install" と書くリポジトリがあり、['"] にしていない
+ *      コピーは skipWaiting の検査が素通りしていた。
+ *
+ *   5. ハンドラの切れ目は「次の addEventListener」まで。
+ *      install の次に message ハンドラ（正しい skipWaiting の置き場）が来る
+ *      構成で、区間を event 名の決め打ちで切ると、並び順しだいで
+ *      message の中の skipWaiting を install のものと誤判定する。
+ *
+ * ■ config（quality.config.json から呼び出し側が渡す）
+ *   {
+ *     "repoName": "Typa",              // E_STALE_REPO_PATH が /Typa/ をさがす
+ *     "sw": "static",                  // static | vite | workbox | none
+ *     "swSource": "sw.js",             // 検査する SW の原文（vite なら public/sw.js）
+ *     "swVersionConst": "APP_VERSION", // 版の定数名（VERSION 等の別名を許す）
+ *     "manifest": "manifest.webmanifest",
+ *     "jsDirs": ["js"], "cssDirs": ["css"],
+ *     "htmlFiles": ["index.html", "offline.html"],
+ *     "imageDirs": ["icons", "img", "images"],
+ *     "fluidTypeMin": 3,
+ *     "allowedRemoteScripts": ["^https://fonts\\.googleapis\\.com/"],
+ *     "skips": [{ "id": "D_CANVAS_DPR", "reason": "Canvas を使わない" }]
+ *   }
+ *   skips は「検査をゆるめる」のではなく、事情を理由つきで明示する場所。
+ *   理由の無い skip は受け付けない。
  */
-import { stripComments } from './project-quality.mjs';
+import fs from 'node:fs';
+import path from 'node:path';
 
-const ok = (detail = '') => ({ ok: true, detail });
-const ng = (detail) => ({ ok: false, detail });
+/** JavaScript / CSS のコメントを落とす（判定の前に必ず通す） */
+export function stripComments(src) {
+  let out = '';
+  let i = 0;
+  let mode = 'code';   // code | line | block | str | tpl
+  let quote = '';
+  while (i < src.length) {
+    const c = src[i];
+    const n = src[i + 1];
+    if (mode === 'code') {
+      if (c === '/' && n === '/') { mode = 'line'; i += 2; continue; }
+      if (c === '/' && n === '*') { mode = 'block'; i += 2; continue; }
+      if (c === '"' || c === "'") { mode = 'str'; quote = c; out += c; i++; continue; }
+      if (c === '`') { mode = 'tpl'; out += c; i++; continue; }
+      out += c; i++; continue;
+    }
+    if (mode === 'line') { if (c === '\n') { mode = 'code'; out += c; } i++; continue; }
+    if (mode === 'block') { if (c === '*' && n === '/') { mode = 'code'; i += 2; } else { if (c === '\n') out += c; i++; } continue; }
+    if (mode === 'str') { if (c === '\\') { out += c + (n || ''); i += 2; continue; } if (c === quote) mode = 'code'; out += c; i++; continue; }
+    if (mode === 'tpl') { if (c === '\\') { out += c + (n || ''); i += 2; continue; } if (c === '`') mode = 'code'; out += c; i++; continue; }
+  }
+  return out;
+}
 
-const htmlFiles = (ctx) => ctx.files.filter((f) => /\.html$/.test(f) && !/^(vendor|node_modules)\//.test(f));
-const swFiles = (ctx) => ctx.files.filter((f) => /(^|\/)sw\.js$/.test(f));
+const DEFAULTS = {
+  repoName: null,
+  sw: 'static',
+  swSource: null,               // 未指定なら sw に応じて既定を選ぶ
+  swVersionConst: null,         // 未指定なら APP_VERSION / VERSION の両方を受ける
+  manifest: 'manifest.webmanifest',
+  jsDirs: ['js'],
+  cssDirs: ['css'],
+  htmlFiles: ['index.html', 'offline.html'],
+  imageDirs: ['icons', 'img', 'images'],
+  fluidTypeMin: 3,
+  allowedRemoteScripts: [],
+  skips: [],
+};
 
-export const gigaV5Checks = [
-  // ── 依存（v5 の最重要） ────────────────────────────────────────────
+const read = (root, rel) => {
+  const p = path.join(root, rel);
+  return fs.existsSync(p) ? fs.readFileSync(p, 'utf8') : null;
+};
+const listFiles = (root, dir, ext) => {
+  const p = path.join(root, dir);
+  if (!fs.existsSync(p)) return [];
+  return fs.readdirSync(p).filter((f) => f.endsWith(ext)).map((f) => path.join(dir, f));
+};
+const jsFiles = (root, cfg) => cfg.jsDirs.flatMap((d) => listFiles(root, d, '.js'));
+const cssFiles = (root, cfg) => cfg.cssDirs.flatMap((d) => listFiles(root, d, '.css'));
+const swSourceOf = (cfg) => cfg.swSource || (cfg.sw === 'vite' ? 'public/sw.js' : 'sw.js');
+
+/**
+ * 検査の定義。run(root, cfg) は { ok, detail[], skip? } を返す。
+ * skip は「このリポジトリでは対象がない」の説明（ok:true と併用）。
+ */
+export const CHECKS = [
   {
-    id: 'DEP_BROWSER_BABEL',
-    title: 'ブラウザへ @babel/standalone を送っていない',
-    run: (ctx) => {
-      const bad = htmlFiles(ctx).filter((f) => /babel\/standalone|text\/babel/.test(ctx.read(f) || ''));
-      return bad.length ? ng(`${bad.join(', ')}（開くたびにコンパイルし、塞がれると画面が真っ白になる）`) : ok();
+    id: 'A_LICENSE',
+    title: 'LICENSE が実ファイルである',
+    run: (root) => {
+      const s = read(root, 'LICENSE');
+      if (!s) return { ok: false, detail: ['LICENSE がありません'] };
+      if (!/Copyright \(c\)/i.test(s)) return { ok: false, detail: ['LICENSE に著作権表示がありません'] };
+      return { ok: true, detail: [] };
     },
   },
   {
-    id: 'DEP_TAILWIND_CDN',
-    title: 'cdn.tailwindcss.com を使っていない',
-    run: (ctx) => {
-      const bad = htmlFiles(ctx).filter((f) => /cdn\.tailwindcss\.com/.test(ctx.read(f) || ''));
-      return bad.length ? ng(bad.join(', ')) : ok();
+    id: 'A_GITIGNORE',
+    title: '.gitignore が秘密ファイルを除いている',
+    run: (root) => {
+      const s = read(root, '.gitignore');
+      if (!s) return { ok: false, detail: ['.gitignore がありません'] };
+      const missing = ['node_modules', '.env'].filter((k) => !s.includes(k));
+      return { ok: missing.length === 0, detail: missing.map((m) => `${m} の行がありません`) };
     },
   },
   {
-    id: 'DEP_CDN_SCRIPT',
+    id: 'A_DEPENDABOT',
+    title: 'dependabot.yml がある',
+    run: (root) => ({
+      ok: !!read(root, '.github/dependabot.yml'),
+      detail: ['.github/dependabot.yml がありません'],
+    }),
+  },
+  {
+    id: 'A_CI_ON_PR',
+    title: 'CI が pull_request でも走る',
+    run: (root) => {
+      const files = listFiles(root, '.github/workflows', '.yml');
+      if (!files.length) return { ok: false, detail: ['.github/workflows にワークフローがありません'] };
+      const any = files.some((f) => /^\s*pull_request\s*:/m.test(read(root, f) || ''));
+      return { ok: any, detail: ['push だけでは PR の時点で落ちていることに気づけません'] };
+    },
+  },
+  {
+    id: 'A_DOCS',
+    title: 'README / MANUAL / AUDIT がある',
+    run: (root) => {
+      const missing = ['README.md', 'MANUAL.md', 'AUDIT.md'].filter((f) => !read(root, f));
+      return { ok: missing.length === 0, detail: missing.map((m) => `${m} がありません`) };
+    },
+  },
+
+  {
+    id: 'B_NO_CDN_CODE',
     title: 'CDN から取る実行コードが 0 バイト',
-    run: (ctx) => {
+    run: (root, cfg) => {
+      const allowed = cfg.allowedRemoteScripts.map((re) => new RegExp(re));
       const bad = [];
-      for (const f of htmlFiles(ctx)) {
-        const src = ctx.read(f) || '';
-        for (const m of src.matchAll(/<script[^>]*\ssrc=["']([^"']+)["']/gi)) {
-          if (/^https?:\/\//i.test(m[1])) bad.push(`${f} → ${m[1]}`);
+      for (const rel of [...cfg.htmlFiles, ...jsFiles(root, cfg)]) {
+        const s = read(root, rel);
+        if (!s) continue;
+        const code = stripComments(s).replace(/<!--[\s\S]*?-->/g, ' ');
+        for (const m of code.matchAll(/(?:src|href)\s*=\s*["'](https?:\/\/[^"']+)["']/gi)) {
+          if (allowed.some((re) => re.test(m[1]))) continue;
+          bad.push(`${rel}: ${m[1]} を読んでいます`);
         }
+        if (/babel\/standalone|cdn\.tailwindcss\.com/.test(code)) bad.push(`${rel}: ブラウザの中でコンパイルしています`);
       }
-      return bad.length ? ng(bad.join(', ')) : ok();
+      return { ok: bad.length === 0, detail: bad };
+    },
+  },
+  {
+    id: 'B_NO_SECRETS',
+    title: 'API キー・秘密鍵の直書きがない',
+    run: (root, cfg) => {
+      const bad = [];
+      for (const rel of [...cfg.htmlFiles, ...jsFiles(root, cfg)]) {
+        const s = read(root, rel);
+        if (!s) continue;
+        // AIza… は Google API キーの形。BEGIN PRIVATE KEY は鍵そのもの。
+        if (/AIza[0-9A-Za-z_-]{35}/.test(s)) bad.push(`${rel}: Google API キーらしき文字列があります`);
+        if (/-----BEGIN [A-Z ]*PRIVATE KEY-----/.test(s)) bad.push(`${rel}: 秘密鍵があります`);
+      }
+      return { ok: bad.length === 0, detail: bad };
+    },
+  },
+  {
+    id: 'B_CSP',
+    title: 'CSP があり、script-src がしまっている',
+    run: (root) => {
+      const s = read(root, 'index.html');
+      if (!s) return { ok: false, detail: ['index.html がありません'] };
+      const m = s.match(/http-equiv=["']Content-Security-Policy["'][^>]*content=["']([\s\S]*?)["']\s*\/?>/i);
+      if (!m) return { ok: false, detail: ['CSP の <meta> がありません'] };
+      const csp = m[1];
+      const bad = [];
+      const script = (csp.match(/script-src([^;]*)/) || [])[1] || '';
+      if (!/'self'/.test(script)) bad.push("script-src に 'self' がありません");
+      if (/'unsafe-inline'|'unsafe-eval'/.test(script)) bad.push('script-src に unsafe-inline / unsafe-eval があります');
+      // frame-ancestors は <meta> では無視される（書くと警告が出るだけ）
+      if (/frame-ancestors/.test(csp)) bad.push('frame-ancestors は <meta> では無視されます。HTTP ヘッダーで設定してください');
+      return { ok: bad.length === 0, detail: bad };
+    },
+  },
+  {
+    id: 'B_NO_INLINE_SCRIPT',
+    title: 'index.html にインラインの <script> と onclick= がない',
+    run: (root) => {
+      const s = read(root, 'index.html');
+      if (!s) return { ok: false, detail: ['index.html がありません'] };
+      // コメントの中の例示に反応しないよう、HTML コメントを落としてから見る
+      const html = s.replace(/<!--[\s\S]*?-->/g, '');
+      const bad = [];
+      for (const m of html.matchAll(/<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/gi)) {
+        if (m[1].trim()) bad.push('中身のある <script> があります（CSP で動きません）');
+      }
+      if (/\son[a-z]+\s*=\s*["']/i.test(html)) bad.push('onclick= などの属性があります（CSP で動きません）');
+      return { ok: bad.length === 0, detail: bad };
     },
   },
 
-  // ── 表示 ───────────────────────────────────────────────────────────
   {
-    id: 'VIEWPORT_FIT_COVER',
-    title: 'viewport に viewport-fit=cover',
-    run: (ctx) => {
-      const bad = htmlFiles(ctx).filter((f) => {
-        const src = ctx.read(f) || '';
-        const m = src.match(/<meta[^>]+name=["']viewport["'][^>]*>/i);
-        return m && !/viewport-fit\s*=\s*cover/.test(m[0]);
-      });
-      return bad.length ? ng(bad.join(', ')) : ok();
-    },
-  },
-  {
-    id: 'VIEWPORT_NO_ZOOM_LOCK',
-    title: '拡大を禁止していない（user-scalable=no / maximum-scale）',
-    run: (ctx) => {
-      const bad = [...htmlFiles(ctx), ...ctx.files.filter((f) => /\.gs$/.test(f))]
-        .filter((f) => /user-scalable\s*=\s*no|maximum-scale\s*=\s*1/.test(ctx.read(f) || ''));
-      return bad.length ? ng(`${bad.join(', ')}（見えづらい子が拡大できない害のほうが大きい）`) : ok();
-    },
-  },
-  {
-    id: 'VIEWPORT_100VH',
-    title: '100vh を単独で使っていない',
-    run: (ctx) => {
+    id: 'C_NO_LS_CLEAR',
+    title: 'localStorage.clear() をつかっていない',
+    run: (root, cfg) => {
       const bad = [];
-      for (const f of ctx.files) {
-        if (!/\.(css|html)$/.test(f) || /^(vendor|node_modules|css)\//.test(f)) continue;
-        const lines = (ctx.read(f) || '').split('\n');
-        lines.forEach((line, i) => {
-          if (!/\b100vh\b/.test(line)) return;
-          // 前後を見る。@supports not (height: 100dvh) { … 100vh } は正しい書き方で、
-          // 同じ規則の中に dvh があるかどうかを見ないと誤検知する。
-          const around = lines.slice(Math.max(0, i - 4), i + 5).join('\n');
-          if (/dvh/.test(around)) return;
-          bad.push(`${f}:${i + 1}`);
-        });
+      for (const rel of jsFiles(root, cfg)) {
+        // ⚠️ コメントを落としてから見る。注意書きに反応して誤検知する
+        if (/localStorage\s*\.\s*clear\s*\(/.test(stripComments(read(root, rel)))) bad.push(`${rel} でつかっています`);
       }
-      return bad.length ? ng(bad.join(', ')) : ok();
+      return { ok: bad.length === 0, detail: bad };
     },
   },
   {
-    id: 'SAFE_AREA',
-    title: 'safe-area-inset を使っている',
-    run: (ctx) => {
-      const found = ctx.files.some((f) => /\.(css|html)$/.test(f) && !/^(vendor|css)\//.test(f) && /safe-area-inset/.test(ctx.read(f) || ''));
-      return found ? ok() : ng('ノッチ・ホームバーの領域に入り込む');
+    id: 'C_PAGEHIDE',
+    title: 'pagehide できろくを確定している',
+    run: (root, cfg) => {
+      // records-hub-client.js（正本コピー）の pagehide は記録ハブへの写しの
+      // 送信で、アプリ自身の確定保存ではない。混ぜると本体の保存が消えても
+      // 通ってしまうので、除いて見る。
+      const hit = jsFiles(root, cfg)
+        .filter((rel) => path.basename(rel) !== 'records-hub-client.js')
+        .some((rel) => /addEventListener\(\s*['"]pagehide['"]/.test(stripComments(read(root, rel))));
+      return { ok: hit, detail: ['Chromebook はメモリ不足でタブをすてます。pagehide で締めてください'] };
     },
   },
   {
-    id: 'FLUID_TYPE',
-    title: 'clamp() による文字サイズがある',
-    run: (ctx) => {
-      const found = ctx.files.some((f) => /\.(css)$/.test(f) && !/^(vendor|css)\//.test(f) && /clamp\(/.test(ctx.read(f) || ''));
-      return found ? ok() : ng('固定 px だけだと 320px でははみ出し、電子黒板では小さい');
-    },
-  },
-  {
-    id: 'CANVAS_DPR',
-    title: 'Canvas に devicePixelRatio 補正がある',
-    run: (ctx) => {
-      const users = ctx.files.filter((f) => /\.(js|jsx|mjs|html)$/.test(f) && !/^(vendor|node_modules|js)\//.test(f)
-        && /getContext\(\s*['"]2d['"]/.test(stripComments(ctx.read(f) || '')));
-      // 実測ツールの 1px キャンバス（色を読むだけ）は表示に関係しないので除く
-      const drawing = users.filter((f) => !/^tools\/measure\//.test(f));
-      if (!drawing.length) return { skip: true, detail: '描画に使う Canvas は無い' };
-      const bad = drawing.filter((f) => !/devicePixelRatio/.test(ctx.read(f) || ''));
-      return bad.length ? ng(bad.join(', ')) : ok();
-    },
-  },
-  {
-    id: 'REDUCED_MOTION',
-    title: 'prefers-reduced-motion 対応（.01ms であって 0 でない）',
-    run: (ctx) => {
-      const files = ctx.files.filter((f) => /\.(css|html)$/.test(f) && !/^(vendor|css)\//.test(f));
-      const withRule = files.filter((f) => /prefers-reduced-motion/.test(ctx.read(f) || ''));
-      if (!withRule.length) return ng('指定が無い');
-      for (const f of withRule) {
-        const src = ctx.read(f) || '';
-        const block = src.slice(src.indexOf('prefers-reduced-motion'));
-        const head = block.slice(0, 600);
-        if (/animation-duration:\s*0s?\s*!/.test(head) || /transition-duration:\s*0s?\s*!/.test(head)) {
-          return ng(`${f}: 0 にすると fill-mode: forwards が壊れ、フェードインする要素が消える`);
-        }
+    id: 'C_NO_POSTMESSAGE_STAR',
+    title: "postMessage の宛先が '*' でない",
+    run: (root, cfg) => {
+      const bad = [];
+      for (const rel of jsFiles(root, cfg)) {
+        if (/\.postMessage\([^)]*,\s*['"]\*['"]\s*\)/.test(stripComments(read(root, rel)))) bad.push(rel);
       }
-      return ok();
-    },
-  },
-  {
-    id: 'FORCED_COLORS',
-    title: 'forced-colors（ハイコントラスト）対応',
-    run: (ctx) => {
-      const found = ctx.files.some((f) => /\.(css|html)$/.test(f) && !/^(vendor|css)\//.test(f) && /forced-colors/.test(ctx.read(f) || ''));
-      return found ? ok() : ng('背景色が無効化されると押せると分からなくなる');
-    },
-  },
-  {
-    id: 'RUBY_RT_COLOR',
-    title: 'rt（ふりがな）の色を決め打ちしていない',
-    run: (ctx) => {
-      const files = ctx.files.filter((f) => /\.(css|html|jsx?)$/.test(f) && !/^(vendor|css|js)\//.test(f));
-      let declaresRt = false;
-      let inherits = false;
-      for (const f of files) {
-        const src = ctx.read(f) || '';
-        if (/(^|\s|,)rt\s*\{/.test(src)) declaresRt = true;
-        // 色のついた面では継がせているか（まとめて継がせるのが正しい）
-        if (/rt\s*\{\s*color:\s*inherit|rt\s*\{[^}]*inherit/.test(src)) inherits = true;
-        // JSX 側で rt に色クラスを直接当てていないか
-        if (/<rt[^>]*className=["'][^"']*text-(slate|gray|zinc|neutral|stone)-\d+/.test(src)) {
-          return ng(`${f}: rt に色クラスを直接当てている。色のついた面の上で読めなくなる`);
-        }
-      }
-      if (!declaresRt) return { skip: true, detail: 'rt の指定が無い' };
-      return inherits ? ok() : ng('白地の既定値だけで、色のついた面で継がせる指定が無い');
+      return { ok: bad.length === 0, detail: bad.map((f) => `${f} で宛先が '*' です`) };
     },
   },
 
-  // ── PWA ────────────────────────────────────────────────────────────
   {
-    id: 'PWA_MANIFEST_IDENTITY',
+    id: 'D_VIEWPORT',
+    title: 'viewport が viewport-fit=cover で、拡大を禁止していない',
+    run: (root) => {
+      const s = read(root, 'index.html');
+      const m = s && s.match(/<meta\s+name=["']viewport["'][^>]*content=["']([^"']+)["']/i);
+      if (!m) return { ok: false, detail: ['viewport の <meta> がありません'] };
+      const bad = [];
+      if (!/viewport-fit\s*=\s*cover/.test(m[1])) bad.push('viewport-fit=cover がありません');
+      if (/user-scalable\s*=\s*no/.test(m[1])) bad.push('user-scalable=no があります（見えづらい子が拡大できません）');
+      if (/maximum-scale\s*=\s*1(\.0)?\b/.test(m[1])) bad.push('maximum-scale=1.0 があります');
+      return { ok: bad.length === 0, detail: bad };
+    },
+  },
+  {
+    id: 'D_DVH',
+    title: '100vh を単独でつかっていない',
+    run: (root, cfg) => {
+      const bad = [];
+      for (const rel of [...cssFiles(root, cfg), ...cfg.htmlFiles]) {
+        const s = read(root, rel);
+        if (!s) continue;
+        // ⚠️ 前方も見る。@supports not (height: 100dvh) の中の 100vh は正しいひかえ。
+        //    min-height / max-height で書くリポジトリもあるので、height の変種を受ける
+        const css = s.replace(/\/\*[\s\S]*?\*\//g, '');
+        const guards = [];
+        const re = /@supports\s+not\s*\(\s*(?:min-|max-)?height\s*:\s*100dvh\s*\)\s*\{/g;
+        let g;
+        while ((g = re.exec(css))) {
+          // 対応する } までをひかえの区間とする
+          let depth = 1; let i = re.lastIndex;
+          while (i < css.length && depth > 0) { if (css[i] === '{') depth++; else if (css[i] === '}') depth--; i++; }
+          guards.push([g.index, i]);
+        }
+        for (const m of css.matchAll(/\b100vh\b/g)) {
+          const inGuard = guards.some(([a, b]) => m.index > a && m.index < b);
+          if (!inGuard) bad.push(`${rel}: @supports の外で 100vh をつかっています`);
+        }
+      }
+      return { ok: bad.length === 0, detail: bad };
+    },
+  },
+  {
+    id: 'D_SAFE_AREA',
+    title: 'safe-area-inset をつかっている',
+    run: (root, cfg) => {
+      const n = cssFiles(root, cfg)
+        .reduce((a, rel) => a + (read(root, rel).match(/env\(\s*safe-area-inset/g) || []).length, 0);
+      return { ok: n > 0, detail: ['ノッチ・ホームバーのぶんを足していません'] };
+    },
+  },
+  {
+    id: 'D_FLUID_TYPE',
+    title: 'clamp() で文字の大きさを決めている',
+    run: (root, cfg) => {
+      const n = cssFiles(root, cfg)
+        .reduce((a, rel) => a + (read(root, rel).match(/clamp\(/g) || []).length, 0);
+      return { ok: n >= cfg.fluidTypeMin, detail: [`clamp() が ${n} か所しかありません（目安 ${cfg.fluidTypeMin}）`] };
+    },
+  },
+  {
+    id: 'D_CANVAS_DPR',
+    title: 'Canvas に devicePixelRatio の補正がある（Canvas をつかうときだけ）',
+    run: (root, cfg) => {
+      const files = jsFiles(root, cfg).filter((rel) => /getContext\(\s*['"]2d['"]/.test(stripComments(read(root, rel))));
+      if (!files.length) return { ok: true, detail: [], skip: 'Canvas をつかっていません' };
+      const bad = files.filter((rel) => !/devicePixelRatio/.test(stripComments(read(root, rel))));
+      return { ok: bad.length === 0, detail: bad.map((f) => `${f}: DPR 補正がありません（高DPI機でぼやけます）`) };
+    },
+  },
+  {
+    id: 'D_REDUCED_MOTION',
+    title: 'prefers-reduced-motion に対応し、0 ではなく .01ms 以下の実数',
+    run: (root, cfg) => {
+      const css = cssFiles(root, cfg).map((rel) => read(root, rel)).join('\n');
+      if (!/prefers-reduced-motion/.test(css)) return { ok: false, detail: ['対応していません'] };
+      const bad = [];
+      // 0 にすると animation-fill-mode: forwards が効かず、中身が消える
+      if (/animation-duration\s*:\s*0(m?s)?\s*(!important)?\s*;/.test(css)) bad.push('animation-duration が 0 です（fill-mode: forwards が効かず中身が消えます）');
+      if (/transition-duration\s*:\s*0(m?s)?\s*(!important)?\s*;/.test(css)) bad.push('transition-duration が 0 です');
+      return { ok: bad.length === 0, detail: bad };
+    },
+  },
+  {
+    id: 'D_FORCED_COLORS',
+    title: 'forced-colors（ハイコントラスト）に対応している',
+    run: (root, cfg) => {
+      const css = cssFiles(root, cfg).map((rel) => read(root, rel)).join('\n');
+      return { ok: /forced-colors\s*:\s*active/.test(css), detail: ['地の色が無効にされると、押せることが分からなくなります'] };
+    },
+  },
+  {
+    id: 'D_RT_COLOR',
+    title: 'ふりがな（rt）の色を決め打ちしていない',
+    run: (root, cfg) => {
+      const bad = [];
+      for (const rel of cssFiles(root, cfg)) {
+        const css = read(root, rel).replace(/\/\*[\s\S]*?\*\//g, '');
+        for (const m of css.matchAll(/(^|[},])\s*rt\s*\{([^}]*)\}/g)) {
+          const body = m[2];
+          if (/color\s*:/.test(body) && !/color\s*:\s*inherit/.test(body)) {
+            // 色のついた面で継がせる手当てがあればよい
+            if (!/\[class\*?=["']?bg-|button\s+rt|\brt\s*\{\s*color\s*:\s*inherit/.test(css)) {
+              bad.push(`${rel}: rt に色を決め打ちしています（色のついた面で読めなくなります）`);
+            }
+          }
+        }
+      }
+      return { ok: bad.length === 0, detail: bad };
+    },
+  },
+  {
+    id: 'F_LABEL_FOR_TABBABLE',
+    title: '<label for> のさす部品が Tab の順から外れていない',
+    /*
+     * F3（キーボードのみで全機能に到達）が静的に見えるただ1つの形。
+     *
+     * <label class="btn" for="x">えらぶ</label>
+     * <input type="file" id="x" hidden>          ← これ
+     *
+     * label はそれ自身 Tab に乗らない。さす先が hidden（＝ display:none）だと、
+     * **マウスでしか押せないボタン**になる。ビルドも静的解析も通り、画面も
+     * ふつうに出るので気づけない。実際に Typa の「ファイルをえらぶ」が
+     * この形で、キーボードだけの人は書き出したきろくを読みこむ手が
+     * まったくなかった。
+     *
+     * 見えなくすること自体は問題ではない。
+     * position:absolute + opacity:0 なら Tab にはのこる。
+     * **hidden / display:none だけ**を落とす。
+     */
+    run: (root, cfg) => {
+      const bad = [];
+      const sources = ['index.html', ...jsFiles(root, cfg)];
+      for (const rel of sources) {
+        const src = read(root, rel);
+        if (src === null) continue;
+        const wanted = new Set();
+        for (const m of src.matchAll(/<label[^>]*\sfor=["']([^"']+)["']/g)) wanted.add(m[1]);
+        if (!wanted.size) continue;
+        for (const id of wanted) {
+          const esc = id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+          const re = new RegExp(`<(input|select|textarea|button)\\b[^>]*\\bid=["']${esc}["'][^>]*>`, 'g');
+          for (const m of src.matchAll(re)) {
+            const tag = m[0];
+            if (/\shidden(\s|>|=)/.test(tag) || /display\s*:\s*none/.test(tag)) {
+              bad.push(`${rel}: <label for="${id}"> のさす ${m[1]} が Tab の順から外れています`
+                + '（hidden／display:none ではなく、position:absolute + opacity:0 で見えなくします）');
+            }
+          }
+        }
+      }
+      return { ok: bad.length === 0, detail: bad };
+    },
+  },
+
+  {
+    id: 'E_MANIFEST_ID',
     title: 'manifest の id / scope / start_url が配信場所と合っている',
-    run: (ctx) => {
-      const src = ctx.read('manifest.webmanifest');
-      if (!src) return ng('manifest.webmanifest が無い');
-      const m = JSON.parse(src);
-      const want = ctx.config.basePath;
-      const bad = ['id', 'scope', 'start_url'].filter((k) => m[k] !== want);
-      return bad.length ? ng(`${bad.join(' / ')} が ${want} でない`) : ok(want);
-    },
-  },
-  {
-    id: 'PWA_ICONS',
-    title: 'アイコン4種と apple-touch-icon が揃っている',
-    run: (ctx) => {
-      const need = ['icons/icon-192.png', 'icons/icon-512.png', 'icons/maskable-192.png', 'icons/maskable-512.png', 'icons/apple-touch-icon.png'];
-      const missing = need.filter((f) => !ctx.exists(f));
-      return missing.length ? ng(`${missing.join(', ')} が無い`) : ok();
-    },
-  },
-  {
-    id: 'PWA_APPLE_TOUCH_ICON',
-    title: 'apple-touch-icon に icon-192 を流用していない',
-    run: (ctx) => {
+    run: (root, cfg) => {
+      const s = read(root, cfg.manifest);
+      if (!s) return { ok: false, detail: [`${cfg.manifest} がありません`] };
+      let j;
+      try { j = JSON.parse(s); } catch (e) { return { ok: false, detail: ['JSON として読めません: ' + e.message] }; }
       const bad = [];
-      for (const f of htmlFiles(ctx)) {
-        const src = ctx.read(f) || '';
-        for (const m of src.matchAll(/<link[^>]+rel=["']apple-touch-icon["'][^>]*>/gi)) {
-          const href = (m[0].match(/href=["']([^"']+)["']/) || [])[1] || '';
-          if (/icon-\d+\.png/.test(href)) bad.push(`${f} → ${href}`);
-        }
+      // 正しい値は「どこで配信するか」で変わる。
+      //
+      // 独自ドメイン（CNAME あり）だとアプリはサブドメインの直下に置かれる。
+      //   https://typa.giga-school.com/
+      // ここで scope を /Typa/ のままにすると、scope がページの URL を含まなくなり、
+      // manifest ごと無視されて PWA としてインストールできなくなる。
+      //
+      // CNAME がなければ共有オリジンのサブディレクトリ配信なので
+      //   https://（ID）.github.io/Typa/
+      // リポジトリ名の絶対パスでないと、同居する別アプリと取りちがえられる。
+      //
+      // 相対パス（"./"）はどちらの配信でも正しく解決されるので、いつでも通す。
+      const hasCname = fs.existsSync(path.join(root, 'CNAME'));
+      const want = hasCname ? '"./"（相対パス）か "/"' : '/{リポジトリ名}/';
+      const okPath = (v) => v === './' || (hasCname ? /^\/(\?|#|$)/.test(v) : /^\/[^/]+\/$/.test(v));
+      for (const k of ['id', 'scope', 'start_url']) {
+        if (!j[k]) { bad.push(`${k} がありません`); continue; }
+        if (!okPath(j[k])) bad.push(`${k} が "${j[k]}" です。${want} の形にしてください`);
       }
-      return bad.length ? ng(`${bad.join(', ')}（透明が黒で埋まり iOS で四隅が黒くなる）`) : ok();
-    },
-  },
-  {
-    id: 'PWA_INSTALL_HOOK',
-    title: 'beforeinstallprompt を head 最上部の外部ファイルで捕まえている',
-    run: (ctx) => {
-      if (!ctx.exists('install-hook.js')) return ng('install-hook.js が無い');
-      if (!/beforeinstallprompt/.test(ctx.read('install-hook.js') || '')) return ng('install-hook.js が捕まえていない');
-      for (const f of htmlFiles(ctx)) {
-        const src = ctx.read(f) || '';
-        if (!/install-hook\.js/.test(src)) continue;
-        const hookAt = src.indexOf('install-hook.js');
-        const others = [...src.matchAll(/<script[^>]+src=["']([^"']+)["']/gi)]
-          .filter((m) => !/install-hook\.js/.test(m[1]));
-        const earlier = others.filter((m) => m.index < hookAt);
-        if (earlier.length) return ng(`${f}: ${earlier[0][1]} のほうが先。合図を取りこぼす`);
-        if (/<script[^>]*\bdefer\b[^>]*install-hook\.js|install-hook\.js[^>]*\bdefer\b/.test(src)) {
-          return ng(`${f}: install-hook.js に defer が付いている。同期読み込みにすること`);
-        }
+      if (j.id && j.scope && j.start_url && new Set([j.id, j.scope, j.start_url]).size !== 1) {
+        bad.push('id / scope / start_url がそろっていません');
       }
-      return ok();
+      return { ok: bad.length === 0, detail: bad };
     },
   },
   {
-    id: 'PWA_SW_CACHE_WIPE',
-    title: 'sw.js が自アプリ接頭辞のキャッシュだけを消す',
-    run: (ctx) => {
-      const files = swFiles(ctx);
-      if (!files.length) return ng('sw.js が無い');
-      for (const f of files) {
-        const src = stripComments(ctx.read(f) || '');
-        if (!/caches\.keys\(\)/.test(src)) continue;
-        // 「消す式」を正規表現で追うと (k) => caches.delete(k) のような書き方を見落とす。
-        // 見るべきは「startsWith で自アプリに絞っているか」。
-        const narrowed = /\.filter\([^)]*startsWith\s*\(/s.test(src)
-          || /startsWith\([^)]*\)\s*&&/.test(src);
-        if (!narrowed) return ng(`${f}: caches.keys() を絞らずに消している。同じオリジンの他アプリがオフラインで起動しなくなる`);
+    id: 'E_CNAME',
+    title: 'CNAME に BOM がなく、ドメイン名 1行だけ',
+    run: (root) => {
+      const p = path.join(root, 'CNAME');
+      if (!fs.existsSync(p)) return { ok: true, detail: [], skip: '独自ドメインをつかっていません' };
+      const raw = fs.readFileSync(p, 'utf8');
+      // ⚠️ BOM を必ず見ること。メモ帳や PowerShell の `>` で書くと先頭に U+FEFF が入る。
+      //    目では見えないのに GitHub Pages はドメイン名の一部として読むため、
+      //    ホスト名として不正になり、カスタムドメインが有効にならない。
+      //    DNS も Pages の設定も正しいのに「なぜかつながらない」という、
+      //    いちばん探しにくい壊れかたをする。実際にこれで全リポジトリが止まった。
+      if (raw.charCodeAt(0) === 0xFEFF) {
+        return { ok: false, detail: ['先頭に BOM があります。BOM なし UTF-8 で保存し直してください'] };
       }
-      return ok();
-    },
-  },
-  {
-    id: 'PWA_SW_LOCALSTORAGE',
-    title: 'sw.js が localStorage に触れていない',
-    run: (ctx) => {
-      const bad = swFiles(ctx).filter((f) => {
-        // 「localStorage は操作しない」という注意書きに反応しないよう、判定前にコメントを落とす
-        const src = stripComments(ctx.read(f) || '');
-        return /localStorage/.test(src);
-      });
-      return bad.length ? ng(bad.join(', ')) : ok();
-    },
-  },
-  {
-    id: 'PWA_SW_NO_SKIPWAITING_ON_INSTALL',
-    title: 'install の中で skipWaiting していない',
-    run: (ctx) => {
-      for (const f of swFiles(ctx)) {
-        const src = stripComments(ctx.read(f) || '');
-        const i = src.indexOf("addEventListener('install'");
-        if (i < 0) continue;
-        const j = src.indexOf("addEventListener('activate'");
-        const installBlock = src.slice(i, j > i ? j : src.length);
-        if (/skipWaiting\s*\(/.test(installBlock)) {
-          return ng(`${f}: 児童が操作している最中に中身が入れ替わり、打ちかけの入力が消える`);
-        }
+      const lines = raw.split('\n').filter((l) => l.trim() !== '');
+      if (lines.length !== 1) return { ok: false, detail: [`ドメイン名 1行だけにしてください（${lines.length} 行あります）`] };
+      const host = lines[0].trim();
+      if (!/^(?!-)[a-z0-9-]+(\.(?!-)[a-z0-9-]+)+$/.test(host)) {
+        return { ok: false, detail: [`"${host}" はホスト名として正しくありません（https:// ・末尾の / ・大文字・空白は入れられません）`] };
       }
-      return ok();
+      return { ok: true, detail: [] };
     },
   },
   {
-    id: 'PWA_SW_VERSION_BUMPED',
-    title: 'sw.js の版が自動生成されている',
-    run: (ctx) => {
-      const files = swFiles(ctx);
-      if (!files.length) return ng('sw.js が無い');
-      // 手で上げる運用は上げ忘れが起きる（2026-08-21 に全リポジトリで同時に漏れた）。
-      // 版は tools/build-sw.mjs が先読み対象の中身から決め、CI の --check がずれを止める。
-      // ここでは「自動生成の形になっているか」を見る。
-      if (!ctx.files.includes('tools/build-sw.mjs')) {
-        return ng('tools/build-sw.mjs が無い。版の自動生成が外れている');
+    id: 'E_STALE_REPO_PATH',
+    title: '旧リポジトリ名の絶対パスがのこっていない（独自ドメインのときだけ）',
+    run: (root, cfg) => {
+      // manifest だけ直しても、SW の登録先と先読み一覧が旧構成のリポジトリ名の
+      // 絶対パス（/Qalc/…）のままだと、登録も先読みも全件 404 になる。
+      // どちらも失敗を握りつぶす作りなので、画面にもコンソールにも何も出ないまま
+      // 「オフラインで開けない・インストールできない」だけが静かに残る。
+      // 実際にこの形で残っていたので、機械で見張る。
+      if (!fs.existsSync(path.join(root, 'CNAME'))) return { ok: true, detail: [], skip: '独自ドメインをつかっていません' };
+      if (!cfg.repoName) return { ok: false, detail: ['quality.config.json に repoName がありません（この検査に必要です）'] };
+      const stale = `/${cfg.repoName}/`;
+      const bad = [];
+      const targets = ['index.html', 'offline.html', cfg.manifest, swSourceOf(cfg), ...jsFiles(root, cfg)];
+      for (const rel of new Set(targets)) {
+        const s = read(root, rel);
+        if (!s) continue;
+        // ⚠️ 判定の前にコメントを落とすこと。
+        //    落とさないと、この決まりを説明したコメント自身
+        //    （「旧 '/Qalc/sw.js' で書かない」）に反応して落ちる。
+        const code = stripComments(s).replace(/<!--[\s\S]*?-->/g, ' ');
+        if (code.includes(`'${stale}`) || code.includes(`"${stale}`)) bad.push(`${rel}: ${stale} がのこっています`);
       }
-      const bad = files.filter((f) => {
-        const m = /APP_VERSION\s*=\s*['"]([^'"]*)['"];?\s*\/\* __APP_VERSION__ \*\//.exec(ctx.read(f) || '');
-        return !m || m[1] === 'v0' || m[1] === 'dev';
-      });
-      return bad.length
-        ? ng(`${bad.join(', ')}: 版が自動生成の形（__APP_VERSION__ の目印つき）になっていない`)
-        : ok('自動生成');
+      return { ok: bad.length === 0, detail: bad };
     },
   },
   {
-    id: 'PWA_SW_REGISTER_READYSTATE',
+    id: 'E_ICONS',
+    title: 'アイコン 4種と、透明をふくまない apple-touch-icon',
+    run: (root, cfg) => {
+      const s = read(root, cfg.manifest);
+      if (!s) return { ok: false, detail: [`${cfg.manifest} がありません`] };
+      const j = JSON.parse(s);
+      const bad = [];
+      const has = (size, purpose) => (j.icons || []).some((i) => i.sizes === size
+        && (purpose === 'any' ? (!i.purpose || i.purpose.includes('any')) : (i.purpose || '').includes('maskable')));
+      if (!has('192x192', 'any')) bad.push('192 の any アイコンがありません');
+      if (!has('512x512', 'any')) bad.push('512 の any アイコンがありません');
+      if (!has('192x192', 'maskable')) bad.push('192 の maskable がありません');
+      if (!has('512x512', 'maskable')) bad.push('512 の maskable がありません');
+
+      const html = read(root, 'index.html') || '';
+      const m = html.replace(/<!--[\s\S]*?-->/g, '').match(/rel=["']apple-touch-icon["'][^>]*href=["']([^"']+)["']/i);
+      if (!m) bad.push('apple-touch-icon がありません');
+      else {
+        const rel = m[1].replace(/^\.\//, '');
+        const p = path.join(root, rel);
+        if (!fs.existsSync(p)) bad.push(`apple-touch-icon のファイルがありません: ${rel}`);
+        else if (pngHasAlpha(p)) bad.push(`${rel} に透明があります（iOS で四すみが黒くなります）`);
+      }
+      return { ok: bad.length === 0, detail: bad };
+    },
+  },
+  {
+    id: 'E_INSTALL_HOOK',
+    title: 'インストールの合図を <head> のいちばん先で受け取っている',
+    run: (root) => {
+      // Chrome は条件がそろうと即座に beforeinstallprompt を出す。
+      // 本体の JS より後だと合図を取りこぼし、通信が遅い端末で
+      // 「インストール」ボタンが出なくなる。install-hook.js を
+      // <head> で（本体より先に）読むのが決まった形。
+      const html = read(root, 'index.html');
+      if (!html) return { ok: false, detail: ['index.html がありません'] };
+      const clean = html.replace(/<!--[\s\S]*?-->/g, '');
+      const headEnd = clean.indexOf('</head>');
+      const head = headEnd > 0 ? clean.slice(0, headEnd) : clean;
+      if (/<script[^>]*src=["'][^"']*install-hook\.js["']/.test(head)) return { ok: true, detail: [] };
+      // 外部ファイルに分けていなくても、head 内で受けていればよい
+      if (head.includes('beforeinstallprompt')) return { ok: true, detail: [] };
+      return { ok: false, detail: ['<head> で beforeinstallprompt を受けていません（install-hook.js を head で読みます）'] };
+    },
+  },
+  {
+    id: 'E_SW_CACHE_SCOPE',
+    title: 'SW が自アプリ接頭辞のキャッシュだけを消している',
+    run: (root, cfg) => {
+      if (cfg.sw === 'none') return { ok: true, detail: [], skip: 'Service Worker をつかっていません' };
+      const rel = swSourceOf(cfg);
+      const src = read(root, rel);
+      if (!src) return { ok: false, detail: [`${rel} がありません`] };
+      const code = stripComments(src);
+      const at = code.search(/caches\s*\.\s*keys\s*\(/);
+      if (at < 0) return { ok: true, detail: [] };
+      // ⚠️ 「消す式」を追ってはいけない（(k) => caches.delete(k) を見のがす）。
+      //    見るのは「startsWith でしぼっているか」。
+      //
+      // ⚠️ ファイル全体から startsWith をさがしてもいけない。
+      //    sw.js には fetch の中に
+      //      if (!url.pathname.startsWith(...)) return;
+      //    のような**別の** startsWith がふつうにある。
+      //    それを拾うと、caches.keys() を全消ししていても通ってしまう。
+      //    caches.keys() からその式のおわりまでだけを見る。
+      const seg = code.slice(at, at + 600);
+      const end = seg.search(/addEventListener\s*\(/);
+      const scope = end > 0 ? seg.slice(0, end) : seg;
+      const ok = /\.\s*startsWith\s*\(/.test(scope) || /\.\s*indexOf\s*\([^)]*\)\s*===?\s*0/.test(scope);
+      return { ok, detail: ['caches.keys() の結果をしぼらずに消しています。同じドメインの他アプリがオフラインで起動しなくなります'] };
+    },
+  },
+  {
+    id: 'E_SW_NO_LOCALSTORAGE',
+    title: 'SW が localStorage にさわっていない',
+    run: (root, cfg) => {
+      if (cfg.sw === 'none') return { ok: true, detail: [], skip: 'Service Worker をつかっていません' };
+      const rel = swSourceOf(cfg);
+      const src = read(root, rel);
+      if (!src) return { ok: false, detail: [`${rel} がありません`] };
+      // ⚠️ コメントを落としてから見る。「localStorage はさわりません」に反応する
+      return { ok: !/localStorage/.test(stripComments(src)), detail: [`${rel} が localStorage をさわっています`] };
+    },
+  },
+  {
+    id: 'E_SW_NO_SKIP_WAITING_ON_INSTALL',
+    title: 'SW の install で skipWaiting() していない',
+    run: (root, cfg) => {
+      if (cfg.sw === 'none') return { ok: true, detail: [], skip: 'Service Worker をつかっていません' };
+      if (cfg.sw === 'workbox') return { ok: true, detail: [], skip: 'workbox 生成のため原文に install ハンドラがありません' };
+      const rel = swSourceOf(cfg);
+      const src = read(root, rel);
+      if (!src) return { ok: false, detail: [`${rel} がありません`] };
+      const code = stripComments(src);
+      // ⚠️ 引用符は ' と " の両方を受けること。"install" と書くリポジトリがある。
+      const start = code.search(/addEventListener\(\s*['"]install['"]/);
+      if (start < 0) return { ok: false, detail: ['install のハンドラがありません'] };
+      // ⚠️ 区間の切れ目は「次の addEventListener」まで。event 名を決め打ちすると、
+      //    並び順しだいで message ハンドラの中の（正しい）skipWaiting を
+      //    install のものと誤判定する。
+      const rest = code.slice(start + 'addEventListener('.length);
+      const next = rest.search(/addEventListener\s*\(/);
+      const seg = next > 0 ? rest.slice(0, next) : rest;
+      const bad = /skipWaiting\s*\(/.test(seg);
+      return { ok: !bad, detail: ['install で skipWaiting() すると、児童が操作しているまっさい中に版が入れかわります'] };
+    },
+  },
+  {
+    id: 'E_SW_UPDATE_PROMPT',
+    title: '更新のおしらせがあり、押されたときだけ切りかえる',
+    run: (root, cfg) => {
+      if (cfg.sw === 'none') return { ok: true, detail: [], skip: 'Service Worker をつかっていません' };
+      const js = jsFiles(root, cfg).map((rel) => stripComments(read(root, rel))).join('\n');
+      const bad = [];
+      if (!/SKIP_WAITING/.test(js)) bad.push('画面から SKIP_WAITING をおくっていません（更新のおしらせがありません）');
+      if (/addEventListener\(\s*['"]controllerchange['"]/.test(js)) {
+        // 押したかどうかの見はりが無いと、初回訪問がかならず1回リロードされる。
+        // 見はりの形は if (!asked) return; のほか、minify 後は
+        // !H||U||(U=!0,location.reload()) のような短絡式にもなる。
+        const seg = js.slice(js.indexOf('controllerchange'), js.indexOf('controllerchange') + 400);
+        const guarded = /if\s*\(\s*![\w$]+/.test(seg)
+          || /![\w$]+\s*\|\|/.test(seg)
+          || /[\w$]+\s*&&[^;\n]*location\s*\.\s*reload/.test(seg);
+        if (!/location\s*\.\s*reload/.test(seg)) { /* reload しないなら問題なし */ }
+        else if (!guarded) bad.push('controllerchange で無条件に reload しています（初回訪問が1回リロードされます）');
+      }
+      return { ok: bad.length === 0, detail: bad };
+    },
+  },
+  {
+    id: 'E_SW_REGISTER_READYSTATE',
     title: 'Service Worker の登録に readyState の分岐がある',
-    run: (ctx) => {
-      const files = ctx.files.filter((f) => /\.(js|jsx|mjs|html)$/.test(f) && !/^(vendor|node_modules|js)\//.test(f)
-        && /serviceWorker\s*\.\s*register/.test(ctx.read(f) || ''));
-      if (!files.length) return ng('登録している場所が無い');
-      const bad = files.filter((f) => {
-        const src = ctx.read(f) || '';
-        if (!/addEventListener\(\s*['"]load['"]/.test(src)) return false; // load を待っていないなら分岐は不要
-        return !/readyState\s*===?\s*['"]complete['"]/.test(src);
+    run: (root, cfg) => {
+      if (cfg.sw === 'none') return { ok: true, detail: [], skip: 'Service Worker をつかっていません' };
+      const files = jsFiles(root, cfg).filter((rel) => /serviceWorker\s*\.\s*register/.test(stripComments(read(root, rel))));
+      if (!files.length) return { ok: false, detail: ['serviceWorker.register がありません'] };
+      const bad = files.filter((rel) => {
+        const code = stripComments(read(root, rel));
+        if (!/addEventListener\(\s*['"]load['"]/.test(code)) return false;   // load を待っていないなら問題なし
+        return !/readyState\s*===?\s*['"]complete['"]/.test(code);
       });
-      return bad.length ? ng(`${bad.join(', ')}: load が済んでいるとリスナーは付くが二度と呼ばれない`) : ok();
+      return { ok: bad.length === 0, detail: bad.map((f) => `${f}: load がもう済んでいる場合を見ていません（黙って登録されません）`) };
     },
   },
   {
-    id: 'PWA_OFFLINE_PAGE',
-    title: 'offline.html があり、外部資産にも JS にも頼らない',
-    run: (ctx) => {
-      const src = ctx.read('offline.html');
-      if (!src) return ng('offline.html が無い');
-      if (/<script/i.test(src)) return ng('JavaScript に頼っている');
-      if (/https?:\/\//.test(src.replace(/<!--[\s\S]*?-->/g, ''))) return ng('外部の資産を読んでいる');
-      return ok();
+    id: 'E_SW_VERSION_GENERATED',
+    title: 'SW の版が自動生成されている（手書きの定数でない）',
+    run: (root, cfg) => {
+      // 手書きの版は 2026-08-21 に全リポジトリで同時に上げ忘れる事故を起こした。
+      // いまは tools/build-sw.mjs（正本: standards/sw/）が先読み対象の中身から
+      // 版を作る。ここでは「その形になっているか」を見る。
+      //   - 目印コメント __APP_VERSION__ が行末にある（手で上げる値ではないと読み手に伝わる）
+      //   - tools/build-sw.mjs が実在する
+      //   - static は v0/dev のままでない（vite は原本が 'dev' で正しい。ビルドが埋める）
+      if (cfg.sw === 'none') return { ok: true, detail: [], skip: 'Service Worker をつかっていません' };
+      if (cfg.sw === 'workbox') return { ok: true, detail: [], skip: 'workbox がプリキャッシュのリビジョンを自動生成します' };
+      const rel = swSourceOf(cfg);
+      const src = read(root, rel);
+      if (!src) return { ok: false, detail: [`${rel} がありません`] };
+      if (!fs.existsSync(path.join(root, 'tools/build-sw.mjs'))) {
+        return { ok: false, detail: ['tools/build-sw.mjs がありません。版の自動生成が外れています'] };
+      }
+      // ⚠️ 目印はコメントなので、コメント除去前の原文で見る。
+      const name = cfg.swVersionConst ? cfg.swVersionConst.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') : '(?:APP_VERSION|VERSION)';
+      const m = src.match(new RegExp(`const ${name} = '([^']*)'; /\\* __APP_VERSION__ \\*/`));
+      if (!m) {
+        return { ok: false, detail: [`${rel} の版の行が自動生成の形（__APP_VERSION__ の目印つき）になっていません`] };
+      }
+      if (cfg.sw === 'static' && (m[1] === 'v0' || m[1] === 'dev')) {
+        return { ok: false, detail: [`${rel} の版が仮の値（${m[1]}）のままです。node tools/build-sw.mjs で埋めてください`] };
+      }
+      return { ok: true, detail: [] };
+    },
+  },
+  {
+    id: 'E_OFFLINE_HTML',
+    title: 'offline.html があり、外部資産にも JavaScript にもたよっていない',
+    run: (root, cfg) => {
+      if (cfg.sw === 'none') return { ok: true, detail: [], skip: 'Service Worker をつかっていません' };
+      const s = read(root, 'offline.html');
+      if (!s) return { ok: false, detail: ['offline.html がありません'] };
+      const bad = [];
+      const html = s.replace(/<!--[\s\S]*?-->/g, '');
+      if (/<script/i.test(html)) bad.push('JavaScript をつかっています（本体が無いときに出るページです）');
+      if (/https?:\/\//.test(html.replace(/<!DOCTYPE[^>]*>/i, ''))) bad.push('外のファイルを読んでいます');
+      if (/\son[a-z]+\s*=/i.test(html)) bad.push('onclick= があります（CSP で動きません）');
+      if (!/<a[^>]+href/i.test(html)) bad.push('もういちどひらくための <a href> がありません');
+      return { ok: bad.length === 0, detail: bad };
+    },
+  },
+  {
+    id: 'E_SW_PRECACHE_OFFLINE',
+    title: 'SW が offline.html を先読みしている',
+    run: (root, cfg) => {
+      if (cfg.sw === 'none') return { ok: true, detail: [], skip: 'Service Worker をつかっていません' };
+      if (cfg.sw === 'workbox') return { ok: true, detail: [], skip: 'workbox の globPatterns が先読みを生成します' };
+      const rel = swSourceOf(cfg);
+      const src = read(root, rel);
+      if (!src) return { ok: false, detail: [`${rel} がありません`] };
+      const code = stripComments(src);
+      // ⚠️ ファイル全体で offline.html をさがしてはいけない。
+      //    fetch の逃げ道に caches.match('./offline.html') と書いてあれば
+      //    見つかってしまい、**先読みしていなくても通る**。
+      //    圏外では先読みしていないものは出せないので、意味が逆になる。
+      //    先読みの配列（[ … ] の中）に入っていることを見る。
+      const inArray = [...code.matchAll(/\[[\s\S]{0,4000}?\]/g)]
+        .some((m) => /offline\.html/.test(m[0]));
+      return { ok: inArray, detail: ['offline.html を先読みの一覧に入れていません。圏外では出せません'] };
+    },
+  },
+  {
+    id: 'E_MASKABLE_SAFE_ZONE',
+    title: 'maskable の下地がはしまで届いている',
+    run: (root, cfg) => {
+      const s = read(root, cfg.manifest);
+      if (!s) return { ok: false, detail: [`${cfg.manifest} がありません`] };
+      const j = JSON.parse(s);
+      const bad = [];
+      for (const ic of (j.icons || []).filter((i) => (i.purpose || '').includes('maskable'))) {
+        const p = path.join(root, ic.src.replace(/^\.\//, ''));
+        if (!fs.existsSync(p)) { bad.push(`${ic.src} がありません`); continue; }
+        if (pngHasAlpha(p)) bad.push(`${ic.src} に透明があります。maskable の下地ははしまでのばしてください（縮んで見えます）`);
+      }
+      return { ok: bad.length === 0, detail: bad };
     },
   },
 
-  // ── セキュリティ ───────────────────────────────────────────────────
   {
-    id: 'CSP_PRESENT',
-    title: 'CSP があり、script-src に unsafe-inline が無い',
-    run: (ctx) => {
-      for (const f of htmlFiles(ctx)) {
-        if (f === 'offline.html') continue;
-        const src = ctx.read(f) || '';
-        const m = src.match(/<meta[^>]+http-equiv=["']Content-Security-Policy["'][^>]*>/i);
-        if (!m) return ng(`${f}: CSP が無い`);
-        // ⚠️ content=["']…["'] のように書くと、値の中の 'self' の ' で切れてしまい、
-        //    script-src を取り出せずに何も見ないまま通る。引用符は後方参照で合わせる。
-        const content = (m[0].match(/content=(["'])([\s\S]*?)\1/) || [])[2] || '';
-        const scriptSrc = (content.match(/script-src([^;]*)/) || [])[1] || '';
-        if (/unsafe-inline|unsafe-eval/.test(scriptSrc)) return ng(`${f}: script-src に unsafe-inline があると CSP を入れた意味がほとんど無い`);
-      }
-      return ok();
-    },
-  },
-  {
-    id: 'CSP_NO_FRAME_ANCESTORS_META',
-    title: 'frame-ancestors を <meta> に書いていない',
-    run: (ctx) => {
-      for (const f of htmlFiles(ctx)) {
-        const src = ctx.read(f) || '';
-        const m = src.match(/<meta[^>]+http-equiv=["']Content-Security-Policy["'][^>]*>/i);
-        if (m && /frame-ancestors/.test(m[0])) return ng(`${f}: <meta> では無視され、警告が出るだけになる`);
-      }
-      return ok();
-    },
-  },
-  {
-    id: 'NO_INLINE_HANDLERS',
-    title: 'onclick= などのインライン属性が無い（CSP で動かなくなる）',
-    run: (ctx) => {
+    id: 'F_FILE_SIZE',
+    title: '1ファイルが 5,000行 / 400KB をこえていない',
+    run: (root, cfg) => {
       const bad = [];
-      for (const f of htmlFiles(ctx)) {
-        const src = (ctx.read(f) || '').replace(/<!--[\s\S]*?-->/g, '');
-        if (/\son(click|change|input|submit|load)\s*=\s*["']/i.test(src)) bad.push(f);
+      for (const rel of [...jsFiles(root, cfg), ...cssFiles(root, cfg), 'index.html']) {
+        const s = read(root, rel);
+        if (!s) continue;
+        const lines = s.split('\n').length;
+        const kb = Buffer.byteLength(s) / 1024;
+        if (lines > 5000) bad.push(`${rel}: ${lines} 行`);
+        if (kb > 400) bad.push(`${rel}: ${kb.toFixed(0)} KB`);
       }
-      return bad.length ? ng(bad.join(', ')) : ok();
+      return { ok: bad.length === 0, detail: bad };
     },
   },
   {
-    id: 'NO_INLINE_SCRIPT',
-    title: 'インラインの <script> が無い',
-    run: (ctx) => {
+    id: 'F_IMG_SIZE',
+    title: '画像が 150KB 以下（PWA アイコン 512 は 60KB、favicon は 30KB）',
+    run: (root, cfg) => {
       const bad = [];
-      for (const f of htmlFiles(ctx)) {
-        const src = (ctx.read(f) || '').replace(/<!--[\s\S]*?-->/g, '');
-        for (const m of src.matchAll(/<script(?![^>]*\ssrc=)[^>]*>([\s\S]*?)<\/script>/gi)) {
-          if (m[1].trim()) bad.push(f);
+      const walk = (dir) => {
+        const p = path.join(root, dir);
+        if (!fs.existsSync(p)) return;
+        for (const f of fs.readdirSync(p)) {
+          const full = path.join(p, f);
+          if (fs.statSync(full).isDirectory()) { walk(path.join(dir, f)); continue; }
+          if (!/\.(png|jpe?g|webp|gif)$/i.test(f)) continue;
+          const kb = fs.statSync(full).size / 1024;
+          const limit = /favicon/i.test(f) ? 30 : /512/.test(f) ? 60 : 150;
+          if (kb > limit) bad.push(`${path.join(dir, f)}: ${kb.toFixed(1)} KB（上限 ${limit} KB）`);
+        }
+      };
+      for (const d of cfg.imageDirs) walk(d);
+      return { ok: bad.length === 0, detail: bad };
+    },
+  },
+  {
+    id: 'F_IMG_DIMENSIONS',
+    title: '<img> に width / height と alt がある',
+    run: (root, cfg) => {
+      const bad = [];
+      for (const rel of [...cfg.htmlFiles, ...jsFiles(root, cfg)]) {
+        const s = read(root, rel);
+        if (!s) continue;
+        const html = s.replace(/<!--[\s\S]*?-->/g, '');
+        for (const m of html.matchAll(/<img\b[^>]*>/gi)) {
+          if (!/\bwidth=/.test(m[0]) || !/\bheight=/.test(m[0])) bad.push(`${rel}: width/height がない <img>（画面ががたつきます）`);
+          if (!/\balt=/.test(m[0])) bad.push(`${rel}: alt がない <img>`);
         }
       }
-      return bad.length ? ng(`${[...new Set(bad)].join(', ')}: CSP の script-src 'self' では実行されない`) : ok();
-    },
-  },
-
-  // ── 生成物 ─────────────────────────────────────────────────────────
-  {
-    id: 'BUILD_ARTIFACTS_PRESENT',
-    title: '生成物が揃っている（GitHub Pages はこれをそのまま配る）',
-    run: (ctx) => {
-      const need = ctx.config.buildArtifacts || [];
-      const missing = need.filter((f) => !ctx.exists(f));
-      return missing.length ? ng(`${missing.join(', ')} が無い。npm run build を走らせてから push すること`) : ok();
+      return { ok: bad.length === 0, detail: bad };
     },
   },
 ];
+
+/** PNG に完全不透明でない画素があるか（標準ライブラリだけで読む） */
+export function pngHasAlpha(file) {
+  const buf = fs.readFileSync(file);
+  if (buf.length < 26 || buf.readUInt32BE(0) !== 0x89504e47) return false;
+  const colorType = buf[25];
+  // 0 = グレー, 2 = RGB, 3 = パレット, 4 = グレー+α, 6 = RGBA
+  if (colorType === 0 || colorType === 2) return false;
+  if (colorType === 3) {
+    // パレットのときは tRNS チャンクがあれば透明をもつ
+    let i = 8;
+    while (i + 8 <= buf.length) {
+      const len = buf.readUInt32BE(i);
+      const tag = buf.toString('latin1', i + 4, i + 8);
+      if (tag === 'tRNS') return true;
+      if (tag === 'IEND') break;
+      i += 12 + len;
+    }
+    return false;
+  }
+  // α チャンネルをもつ形式。実際に展開して透明があるかを見る
+  return rgbaHasTransparency(buf);
+}
+
+function rgbaHasTransparency(buf) {
+  const zlib = require$('node:zlib');
+  const w = buf.readUInt32BE(16);
+  const h = buf.readUInt32BE(20);
+  const depth = buf[24];
+  const colorType = buf[25];
+  if (depth !== 8) return true;   // 判定できないときは安全側（透明がある）にたおす
+  const ch = colorType === 6 ? 4 : 2;
+  let idat = Buffer.alloc(0);
+  let i = 8;
+  while (i + 8 <= buf.length) {
+    const len = buf.readUInt32BE(i);
+    const tag = buf.toString('latin1', i + 4, i + 8);
+    if (tag === 'IDAT') idat = Buffer.concat([idat, buf.subarray(i + 8, i + 8 + len)]);
+    if (tag === 'IEND') break;
+    i += 12 + len;
+  }
+  let raw;
+  try { raw = zlib.inflateSync(idat); } catch (e) { return true; }
+  const stride = w * ch;
+  const out = Buffer.alloc(h * stride);
+  let pos = 0;
+  for (let y = 0; y < h; y++) {
+    const filter = raw[pos++];
+    for (let x = 0; x < stride; x++) {
+      const cur = raw[pos + x];
+      const a = x >= ch ? out[y * stride + x - ch] : 0;
+      const b = y > 0 ? out[(y - 1) * stride + x] : 0;
+      const c = (x >= ch && y > 0) ? out[(y - 1) * stride + x - ch] : 0;
+      let v;
+      if (filter === 0) v = cur;
+      else if (filter === 1) v = cur + a;
+      else if (filter === 2) v = cur + b;
+      else if (filter === 3) v = cur + ((a + b) >> 1);
+      else {
+        const p = a + b - c;
+        const pa = Math.abs(p - a); const pb = Math.abs(p - b); const pc = Math.abs(p - c);
+        v = cur + (pa <= pb && pa <= pc ? a : pb <= pc ? b : c);
+      }
+      out[y * stride + x] = v & 0xff;
+    }
+    pos += stride;
+  }
+  for (let k = ch - 1; k < out.length; k += ch) if (out[k] !== 255) return true;
+  return false;
+}
+
+// node:zlib を同期で読むための小さなヘルパ（ESM から require 相当をつかう）
+import { createRequire } from 'node:module';
+const require$ = createRequire(import.meta.url);
+
+/**
+ * すべての検査を走らせる。
+ * config は quality.config.json の中身（またはその一部）。
+ * 返り値: [{ id, title, ok, detail[], skipped? }]
+ *
+ * config.skips に載る検査は実行せず skipped:true で返す（理由必須）。
+ * 「検査をゆるめる」のではなく、事情を理由つきで残すための口。
+ */
+export function runGigaChecks(root, config = {}) {
+  const cfg = { ...DEFAULTS, ...config };
+  const skipMap = new Map();
+  for (const s of cfg.skips || []) {
+    if (!s || !s.id || !s.reason) {
+      return [{ id: 'CONFIG', title: 'quality.config.json の skips', ok: false, detail: ['skips の各項目には id と reason が必要です'] }];
+    }
+    skipMap.set(s.id, s.reason);
+  }
+  return CHECKS.map((c) => {
+    if (skipMap.has(c.id)) {
+      return { id: c.id, title: `${c.title}（スキップ: ${skipMap.get(c.id)}）`, ok: true, detail: [], skipped: true };
+    }
+    let r;
+    try { r = c.run(root, cfg); } catch (e) { r = { ok: false, detail: ['検査が例外で落ちました: ' + e.message] }; }
+    return { id: c.id, title: c.title + (r.skip ? `（${r.skip}）` : ''), ok: !!r.ok, detail: r.ok ? [] : (r.detail || []) };
+  });
+}
