@@ -275,14 +275,23 @@ export const gigaV5Checks = [
   },
   {
     id: 'PWA_SW_VERSION_BUMPED',
-    title: 'sw.js の版が初期値のままでない',
+    title: 'sw.js の版が自動生成されている',
     run: (ctx) => {
       const files = swFiles(ctx);
       if (!files.length) return ng('sw.js が無い');
-      const want = ctx.config.appVersion;
-      if (!want) return { skip: true, detail: 'quality.config.json に appVersion が無い' };
-      const bad = files.filter((f) => !new RegExp(`APP_VERSION\\s*=\\s*['"]${want}['"]`).test(ctx.read(f) || ''));
-      return bad.length ? ng(`${bad.join(', ')}: APP_VERSION が ${want} でない。更新漏れは「直したのに直らない」の原因`) : ok(want);
+      // 手で上げる運用は上げ忘れが起きる（2026-08-21 に全リポジトリで同時に漏れた）。
+      // 版は tools/build-sw.mjs が先読み対象の中身から決め、CI の --check がずれを止める。
+      // ここでは「自動生成の形になっているか」を見る。
+      if (!ctx.files.includes('tools/build-sw.mjs')) {
+        return ng('tools/build-sw.mjs が無い。版の自動生成が外れている');
+      }
+      const bad = files.filter((f) => {
+        const m = /APP_VERSION\s*=\s*['"]([^'"]*)['"];?\s*\/\* __APP_VERSION__ \*\//.exec(ctx.read(f) || '');
+        return !m || m[1] === 'v0' || m[1] === 'dev';
+      });
+      return bad.length
+        ? ng(`${bad.join(', ')}: 版が自動生成の形（__APP_VERSION__ の目印つき）になっていない`)
+        : ok('自動生成');
     },
   },
   {

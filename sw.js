@@ -9,10 +9,11 @@
  * この Service Worker は localStorage を一切操作しない
  * （そもそも Service Worker からは触れないうえ、児童の書きかけを壊す元になる）。
  *
- * 版を上げるときは APP_VERSION を必ず更新する。更新漏れが「直したのに直らない」の原因。
+ * APP_VERSION は手で上げない。`npm run build:sw` が先読み対象の中身から自動で決める。
+ * （手で上げる運用は 2026-08-21 に全リポジトリで同時に漏れる事故を起こした）
  */
 const CACHE_PREFIX = 'genko-lite-';
-const APP_VERSION = 'v5';
+const APP_VERSION = 'vc4eb3212'; /* __APP_VERSION__ */
 const CACHE_STATIC = CACHE_PREFIX + 'static-' + APP_VERSION;
 const CACHE_RUNTIME = CACHE_PREFIX + 'runtime-' + APP_VERSION;
 

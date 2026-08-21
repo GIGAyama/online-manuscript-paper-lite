@@ -1,0 +1,6 @@
+{
+  "swPath": "sw.js",
+  "baseDir": ".",
+  "versionConst": "APP_VERSION",
+  "shellConst": "PRECACHE_URLS"
+}

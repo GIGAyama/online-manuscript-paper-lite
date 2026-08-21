@@ -20,6 +20,18 @@ jobs:
       # 生成物は GitHub Pages がそのまま配るのでコミットされている。
       # 原本を直したのにビルドし忘れた PR は、ここで差分が出て落ちる。
       - name: 生成物が原本と一致しているか
-        run: git diff --exit-code -- js css vendor
+        run: git diff --exit-code -- js css vendor sw.js
       - run: npm run check
       - run: npm test
+
+  # 正本（GIGAyama.github.io/standards/）との一致。コピーだけ直すと他リポジトリに修正が届かないため。
+  drift:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7
+        with:
+          repository: GIGAyama/GIGAyama.github.io
+          path: .standards-src
+      - name: 正本とのずれ検知
+        run: node .standards-src/standards/check-drift.mjs --standards .standards-src/standards
