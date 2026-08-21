@@ -11,7 +11,8 @@ import { readFileSync, statSync, readdirSync, existsSync } from 'node:fs';
 import { join, dirname, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { projectQualityChecks } from './lib/project-quality.mjs';
-import { gigaV5Checks } from './lib/giga-v5-checks.mjs';
+import { gigaV5Checks } from './lib/local-checks.mjs';
+import { runGigaChecks } from './lib/giga-v5-checks.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const SKIP_DIRS = new Set(['node_modules', '.git', 'dist', '.github/workflows/.cache']);
@@ -60,9 +61,20 @@ export const runChecks = (ctx) => [...projectQualityChecks, ...gigaV5Checks].map
   return { id: check.id, title: check.title, ...result };
 });
 
+/** 正本（Part I 共通）の検査。ctx 方式のローカル検査とは別に、実ファイルを見る。 */
+export const runStandardChecks = () => {
+  const config = JSON.parse(readFileSync(join(ROOT, 'quality.config.json'), 'utf8'));
+  return runGigaChecks(ROOT, config).map((r) => ({
+    id: r.id, title: r.title, ok: r.ok, skip: r.skipped,
+    detail: r.ok ? '' : r.detail.join(' / '),
+  }));
+};
+
 const isMain = process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1];
 if (isMain) {
-  const results = runChecks(buildContext());
+  // 正本の共通検査 → ローカル検査の順。重なりがあっても両方走らせる
+  // （片方を消して穴が開くよりよい。将来ローカル側の重複だけを削る）。
+  const results = [...runStandardChecks(), ...runChecks(buildContext())];
   const failed = results.filter((r) => !r.skip && !r.ok);
   const skipped = results.filter((r) => r.skip);
 

@@ -23,5 +23,11 @@
     "icons/icon-512.png": 61440,
     "icons/maskable-512.png": 61440,
     "favicon.png": 30720
-  }
+  },
+  "repoName": "online-manuscript-paper-lite",
+  "sw": "static",
+  "allowedRemoteScripts": [
+    "^https://fonts\\.googleapis\\.com(/|$)",
+    "^https://fonts\\.gstatic\\.com(/|$)"
+  ]
 }
