@@ -69,7 +69,11 @@ export function stripComments(src) {
     }
     if (mode === 'line') { if (c === '\n') { mode = 'code'; out += c; } i++; continue; }
     if (mode === 'block') { if (c === '*' && n === '/') { mode = 'code'; i += 2; } else { if (c === '\n') out += c; i++; } continue; }
-    if (mode === 'str') { if (c === '\\') { out += c + (n || ''); i += 2; continue; } if (c === quote) mode = 'code'; out += c; i++; continue; }
+    // 文字列は生の改行を含められないので、行末で必ず code に戻す。
+    // 正規表現リテラルの中の引用符（/…'…/）を文字列開始と取りちがえても、
+    // 状態のずれがその行の中で止まり、後続のコメントを見のがさない
+    // （実際に reading-books の app.js で誤検知が起きた）。
+    if (mode === 'str') { if (c === '\\') { out += c + (n || ''); i += 2; continue; } if (c === quote || c === '\n') mode = 'code'; out += c; i++; continue; }
     if (mode === 'tpl') { if (c === '\\') { out += c + (n || ''); i += 2; continue; } if (c === '`') mode = 'code'; out += c; i++; continue; }
   }
   return out;
@@ -297,7 +301,11 @@ export const CHECKS = [
         }
         for (const m of css.matchAll(/\b100vh\b/g)) {
           const inGuard = guards.some(([a, b]) => m.index > a && m.index < b);
-          if (!inGuard) bad.push(`${rel}: @supports の外で 100vh をつかっています`);
+          // カスケードの上書き（min-height:100vh; min-height:100dvh;）も正しいひかえ。
+          // 近く（前後250文字）に dvh の指定があれば、100vh は古いブラウザ向けの行と見なす
+          const near = css.slice(Math.max(0, m.index - 250), m.index + 250);
+          const hasDvhNearby = /\b100dvh\b/.test(near);
+          if (!inGuard && !hasDvhNearby) bad.push(`${rel}: ひかえ（@supports か 100dvh の上書き）なしで 100vh をつかっています`);
         }
       }
       return { ok: bad.length === 0, detail: bad };
@@ -439,12 +447,16 @@ export const CHECKS = [
       // 相対パス（"./"）はどちらの配信でも正しく解決されるので、いつでも通す。
       const hasCname = fs.existsSync(path.join(root, 'CNAME'));
       const want = hasCname ? '"./"（相対パス）か "/"' : '/{リポジトリ名}/';
-      const okPath = (v) => v === './' || (hasCname ? /^\/(\?|#|$)/.test(v) : /^\/[^/]+\/$/.test(v));
+      // start_url の「どこから開かれたか」の目印（./?source=pwa）は正しい使い方なので、
+      // 比べる前にクエリとハッシュを落とす
+      const strip = (v) => String(v).replace(/[?#].*$/, '');
+      const okPath = (v) => v === './' || (hasCname ? /^\/$/.test(v) : /^\/[^/]+\/$/.test(v));
       for (const k of ['id', 'scope', 'start_url']) {
         if (!j[k]) { bad.push(`${k} がありません`); continue; }
-        if (!okPath(j[k])) bad.push(`${k} が "${j[k]}" です。${want} の形にしてください`);
+        if (!okPath(strip(j[k]))) bad.push(`${k} が "${j[k]}" です。${want} の形にしてください`);
       }
-      if (j.id && j.scope && j.start_url && new Set([j.id, j.scope, j.start_url]).size !== 1) {
+      if (j.id && j.scope && j.start_url
+          && new Set([j.id, j.scope, j.start_url].map(strip)).size !== 1) {
         bad.push('id / scope / start_url がそろっていません');
       }
       return { ok: bad.length === 0, detail: bad };
@@ -543,6 +555,12 @@ export const CHECKS = [
       if (/<script[^>]*src=["'][^"']*install-hook\.js["']/.test(head)) return { ok: true, detail: [] };
       // 外部ファイルに分けていなくても、head 内で受けていればよい
       if (head.includes('beforeinstallprompt')) return { ok: true, detail: [] };
+      // ファイル名が install-hook.js でなくても（pwa-early.js 等）、
+      // head で読むスクリプトの中身が合図を受けていればよい
+      for (const m of head.matchAll(/<script[^>]*src=["']([^"']+)["']/gi)) {
+        const s = read(root, m[1].replace(/^\.\//, ''));
+        if (s && /beforeinstallprompt/.test(s)) return { ok: true, detail: [] };
+      }
       return { ok: false, detail: ['<head> で beforeinstallprompt を受けていません（install-hook.js を head で読みます）'] };
     },
   },
@@ -621,10 +639,13 @@ export const CHECKS = [
         // 見はりの形は if (!asked) return; のほか、minify 後は
         // !H||U||(U=!0,location.reload()) のような短絡式にもなる。
         const seg = js.slice(js.indexOf('controllerchange'), js.indexOf('controllerchange') + 400);
+        const reloadAt = seg.search(/location\s*\.\s*reload/);
+        const before = reloadAt > 0 ? seg.slice(0, reloadAt) : '';
         const guarded = /if\s*\(\s*![\w$]+/.test(seg)
           || /![\w$]+\s*\|\|/.test(seg)
-          || /[\w$]+\s*&&[^;\n]*location\s*\.\s*reload/.test(seg);
-        if (!/location\s*\.\s*reload/.test(seg)) { /* reload しないなら問題なし */ }
+          || /[\w$]+\s*&&[^;\n]*location\s*\.\s*reload/.test(seg)
+          || /\breturn\b/.test(before);   // reload の前に早期 return の見はりがある形
+        if (reloadAt < 0) { /* reload しないなら問題なし */ }
         else if (!guarded) bad.push('controllerchange で無条件に reload しています（初回訪問が1回リロードされます）');
       }
       return { ok: bad.length === 0, detail: bad };
@@ -640,7 +661,9 @@ export const CHECKS = [
       const bad = files.filter((rel) => {
         const code = stripComments(read(root, rel));
         if (!/addEventListener\(\s*['"]load['"]/.test(code)) return false;   // load を待っていないなら問題なし
-        return !/readyState\s*===?\s*['"]complete['"]/.test(code);
+        // 'complete' との比較でも 'loading' との比較（DOMContentLoaded 方式）でもよい。
+        // どちらも「もうイベントが済んでいる場合」を見ている
+        return !/readyState\s*[!=]==?\s*['"](?:complete|loading)['"]/.test(code);
       });
       return { ok: bad.length === 0, detail: bad.map((f) => `${f}: load がもう済んでいる場合を見ていません（黙って登録されません）`) };
     },
