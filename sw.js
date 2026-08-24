@@ -13,7 +13,7 @@
  * （手で上げる運用は 2026-08-21 に全リポジトリで同時に漏れる事故を起こした）
  */
 const CACHE_PREFIX = 'genko-lite-';
-const APP_VERSION = 'vc4eb3212'; /* __APP_VERSION__ */
+const APP_VERSION = 'v1da88ed2'; /* __APP_VERSION__ */
 const CACHE_STATIC = CACHE_PREFIX + 'static-' + APP_VERSION;
 const CACHE_RUNTIME = CACHE_PREFIX + 'runtime-' + APP_VERSION;
 
