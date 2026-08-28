@@ -1,0 +1,34 @@
+{
+  "families": [
+    {
+      "family": "Zen Maru Gothic",
+      "weights": [
+        400,
+        500,
+        700
+      ]
+    },
+    {
+      "family": "Zen Old Mincho",
+      "weights": [
+        400,
+        700
+      ]
+    }
+  ],
+  "grades": [
+    1,
+    2
+  ],
+  "scan": [
+    "index.html",
+    "css",
+    "js",
+    "src"
+  ],
+  "outDir": "fonts",
+  "cssPath": "fonts.css",
+  "hrefPrefix": "./fonts/",
+  "copyright": "Copyright The Zen Maru Gothic Project Authors\nCopyright The Zen Old Mincho Project Authors",
+  "license": "SIL Open Font License 1.1 — 全文は fonts/OFL.txt"
+}

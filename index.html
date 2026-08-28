@@ -35,8 +35,8 @@
   <meta http-equiv="Content-Security-Policy" content="
     default-src 'self' file:;
     script-src 'self' file:;
-    style-src 'self' file: 'unsafe-inline' https://fonts.googleapis.com;
-    font-src 'self' file: https://fonts.gstatic.com;
+    style-src 'self' file: 'unsafe-inline';
+    font-src 'self' file:;
     img-src 'self' file: data: blob:;
     connect-src 'self' file:;
     worker-src 'self' file:;
@@ -75,9 +75,10 @@
     校内 Wi-Fi で40人が同時に開くいちばん避けたい状況を自分で作る）。
     端末側の日本語フォントを必ず後ろに並べてある（tailwind.config.js を見ること）。
   -->
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Zen+Maru+Gothic:wght@400;500;700&family=Zen+Old+Mincho:wght@400;700&display=swap" rel="stylesheet">
+  <!-- 書体は自分のところから配る（生成物。node tools/fonts/build-fonts.mjs で作り直す）。
+       ここに Google Fonts への link を戻さないこと。学校のフィルタが
+       塞ぐと書体が当たらず、塞ぎ方によっては画面そのものが出ない。 -->
+  <link rel="stylesheet" href="./fonts.css" />
 
   <link rel="stylesheet" href="./css/style.css">
 
