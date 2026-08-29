@@ -859,10 +859,30 @@ const App = () => {
       </main>
 
       {/* フッター */}
-      <footer className="flex-shrink-0 w-full bg-white border-t border-slate-200 pt-1.5 pb-1 md:pt-3 md:pb-2 text-center text-[10px] md:text-sm text-slate-600 font-bold no-print z-40 shadow-sm relative safe-bottom">
-        &copy; 2026 オンライン原稿用紙 Lite.{' '}
-        <a href="https://giga-school.com" target="_blank" rel="noopener noreferrer" className="tap-44 inline-block text-inherit no-underline hover:opacity-80 transition-opacity">GIGA山</a>{' '}
-        <a href="https://giga-school.com/apps/online-manuscript-paper-lite/" target="_blank" rel="noopener noreferrer" className="tap-44 inline-block text-inherit no-underline hover:opacity-80 transition-opacity">使い方を読む</a>
+      {/* ⚠️ 1 行に収める。flex-nowrap と min-w-0 の 2 つが要る。nowrap だけだと、
+          クレジットの文字列が縮まずに列を押し広げて横スクロールになる。
+          狭い画面ではクレジットが … で切れる。ここが太ると、そのぶん
+          原稿用紙のマス目が狭くなる。 */}
+      <footer className="flex-shrink-0 w-full flex flex-nowrap items-center justify-center gap-1 bg-white border-t border-slate-200 py-1 text-center text-[10px] md:text-sm text-slate-600 font-bold no-print z-40 shadow-sm relative safe-bottom">
+        <span className="min-w-0 truncate">
+          &copy; 2026 オンライン原稿用紙 Lite.{' '}
+          <a href="https://giga-school.com" target="_blank" rel="noopener noreferrer" className="tap-44 inline-block text-inherit no-underline hover:opacity-80 transition-opacity">GIGA山</a>
+        </span>
+        {/* ⚠️ 行き先のリンクを手で書かないこと。中身は正本の部品
+            standards/web/giga-app-links.js（配布物 web/giga-app-links.js）が
+            この中に出す。文言も並びも行き先も、あちらで決まっている。
+
+            ⚠️ ここにあった「使い方を読む」（紹介記事へのリンク）は外した。
+               紹介記事は「なぜ作ったか」を、まだ使っていない先生に向けて
+               書いたもので、いま画面の前で困っている人が求めるものではない。
+               艦隊のほかのアプリでも既に外れている。
+
+            ⚠️ <div> にしないこと。そこで改行が入ってフッターが 2 行になる。
+
+            ⚠️ data-links で「つかいかた」を外してある。このアプリにはまだ
+               docs/manual/ が無く、既定のまま出すと行き止まりのリンクになる。
+               マニュアルを書いたら、この属性ごと消すこと。 */}
+        <span data-giga-links data-links="terms,privacy" />
       </footer>
 
       {/* 印刷用DOM */}

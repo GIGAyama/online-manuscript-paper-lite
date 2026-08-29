@@ -13,7 +13,7 @@
  * （手で上げる運用は 2026-08-21 に全リポジトリで同時に漏れる事故を起こした）
  */
 const CACHE_PREFIX = 'genko-lite-';
-const APP_VERSION = 'vbca6f6d6'; /* __APP_VERSION__ */
+const APP_VERSION = 'va0be3339'; /* __APP_VERSION__ */
 const CACHE_STATIC = CACHE_PREFIX + 'static-' + APP_VERSION;
 const CACHE_RUNTIME = CACHE_PREFIX + 'runtime-' + APP_VERSION;
 
@@ -26,6 +26,10 @@ const PRECACHE_URLS = [
   './fonts.css',
   './',
   './index.html',
+  // 利用規約・プライバシーの行き先を出す部品。並べておかないと、圏外で開いた
+  // ときだけリンクが 1 本も出ない（行き先そのものは開けなくても、どこにあるかは
+  // 見えているほうがいい）。
+  './web/giga-app-links.js',
   './offline.html',
   './manifest.webmanifest',
   './install-hook.js',
