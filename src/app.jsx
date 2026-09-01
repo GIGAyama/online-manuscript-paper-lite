@@ -879,10 +879,10 @@ const App = () => {
 
             ⚠️ <div> にしないこと。そこで改行が入ってフッターが 2 行になる。
 
-            ⚠️ data-links で「つかいかた」を外してある。このアプリにはまだ
-               docs/manual/ が無く、既定のまま出すと行き止まりのリンクになる。
-               マニュアルを書いたら、この属性ごと消すこと。 */}
-        <span data-giga-links data-links="terms,privacy" />
+            2026-09-01 に docs/manual/manual.md を書いたので、data-links を外して
+            既定に戻した。「つかいかた」が先頭に出て、行き先は
+            giga-school.com/apps/online-manuscript-paper-lite/manual/ になる。 */}
+        <span data-giga-links />
       </footer>
 
       {/* 印刷用DOM */}
